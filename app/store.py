@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   title TEXT NOT NULL DEFAULT '',
   cve TEXT NOT NULL DEFAULT '',
   html_url TEXT NOT NULL DEFAULT '',
+  branch TEXT NOT NULL DEFAULT '',
   first_seen_sweep INTEGER NOT NULL,
   last_seen_sweep INTEGER NOT NULL,
   fixed_sweep INTEGER,
@@ -55,6 +56,9 @@ class Store:
         self._lock = threading.RLock()
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(alerts)")}
+        if "branch" not in cols:  # pre-existing DBs get the column added in place
+            self._conn.execute("ALTER TABLE alerts ADD COLUMN branch TEXT NOT NULL DEFAULT ''")
         self._conn.commit()
 
     @staticmethod
@@ -85,18 +89,18 @@ class Store:
         self._conn.execute(
             """INSERT INTO alerts
                (repo, source, number, severity, package, manifest, vulnerable_range,
-                first_patched, title, cve, html_url, first_seen_sweep, last_seen_sweep)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                first_patched, title, cve, html_url, branch, first_seen_sweep, last_seen_sweep)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT (repo, source, number) DO UPDATE SET
                  severity=excluded.severity, package=excluded.package,
                  manifest=excluded.manifest, vulnerable_range=excluded.vulnerable_range,
                  first_patched=excluded.first_patched, title=excluded.title,
-                 cve=excluded.cve, html_url=excluded.html_url,
+                 cve=excluded.cve, html_url=excluded.html_url, branch=excluded.branch,
                  last_seen_sweep=excluded.last_seen_sweep, fixed_sweep=NULL""",
             (
                 repo, a["source"], a["number"], a["severity"], a["package"], a["manifest"],
                 a["vulnerable_range"], a["first_patched"], a["title"], a["cve"],
-                a["html_url"], sweep_id, sweep_id,
+                a["html_url"], a.get("branch", ""), sweep_id, sweep_id,
             ),
         )
 

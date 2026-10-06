@@ -57,8 +57,26 @@ class GitHubClient:
                     break
         return items
 
+    def _get(self, path: str) -> dict[str, Any]:
+        resp = self._client.get(f"{self._base}{path}")
+        if resp.status_code in (403, 404):
+            raise RepoInaccessible(f"HTTP {resp.status_code}", resp.status_code)
+        resp.raise_for_status()
+        page = resp.json()
+        if not isinstance(page, dict):  # error envelope / unexpected shape
+            raise RepoInaccessible("unexpected response", resp.status_code)
+        return page
+
+    def default_branch(self, repo: str) -> str:
+        """Dependabot alerts carry no ref; they are scoped to the default branch."""
+        return str(self._get(f"/repos/{repo}").get("default_branch", ""))
+
     def dependabot_alerts(self, repo: str) -> list[dict[str, Any]]:
         raw = self._paginate(f"/repos/{repo}/dependabot/alerts?state=open&per_page=100")
+        try:
+            branch = self.default_branch(repo)
+        except Exception:  # noqa: BLE001 - branch is best-effort metadata
+            branch = ""
         out = []
         for a in raw:
             dep = a.get("dependency", {})
@@ -78,6 +96,7 @@ class GitHubClient:
                     "title": adv.get("summary", ""),
                     "cve": adv.get("cve_id") or "",
                     "html_url": a.get("html_url", ""),
+                    "branch": branch,
                 }
             )
         return out
@@ -91,18 +110,21 @@ class GitHubClient:
             cve = next((t for t in tags if CVE_RE.fullmatch(t)), "")
             sev = rule.get("security_severity_level") or rule.get("severity") or "unknown"
             tool = (a.get("tool") or {}).get("name", "")
+            inst = a.get("most_recent_instance") or {}
+            branch = (inst.get("ref") or "").removeprefix("refs/heads/")
             out.append(
                 {
                     "source": "code_scanning",
                     "number": a["number"],
                     "severity": sev,
                     "package": tool,
-                    "manifest": ((a.get("most_recent_instance") or {}).get("ref") or ""),
+                    "manifest": inst.get("path", ""),
                     "vulnerable_range": rule.get("id", ""),
                     "first_patched": None,
                     "title": rule.get("description") or "",
                     "cve": cve,
                     "html_url": a.get("html_url", ""),
+                    "branch": branch,
                 }
             )
         return out

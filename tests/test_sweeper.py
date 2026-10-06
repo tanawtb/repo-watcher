@@ -25,6 +25,7 @@ def _alert(number: int = 1, severity: str = "high") -> dict:
         "title": "prototype pollution",
         "cve": "CVE-2024-0000",
         "html_url": "https://github.example/x/security/dependabot/1",
+        "branch": "develop",
     }
 
 
@@ -81,6 +82,7 @@ class ReconciliationTest(unittest.TestCase):
         rows = self.store.open_alerts()
         self.assertEqual(1, len(rows))
         self.assertIsNone(rows[0]["fixed_sweep"])
+        self.assertEqual("develop", rows[0]["branch"])
         self.assertIn("octo-org/web-app", s2["repos_failed"])
 
     def test_code_scanning_403_is_failure_not_reconciled(self) -> None:
