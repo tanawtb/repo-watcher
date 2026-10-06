@@ -83,6 +83,8 @@
   td.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .zero { opacity: .35; }
   .c-crit { color: var(--crit); } .c-high { color: var(--high); }
+  td.n.unk { color: var(--mute); opacity: .7; }
+  .unknote { font: 12px var(--mono); color: var(--high); background: color-mix(in srgb, var(--high) 10%, transparent); border: 1px solid color-mix(in srgb, var(--high) 30%, transparent); border-radius: 10px; padding: 7px 10px; margin-bottom: 12px; }
 
   /* heat grid */
   .heatwrap { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--card-line); }
@@ -92,10 +94,12 @@
   .cell:hover, .cell:focus-visible { transform: scale(1.15); }
   .cell[aria-pressed="true"] { outline: 2px solid var(--fg); outline-offset: 1px; }
   .cell.clear { --c: var(--mute); background: none; border-style: dashed; opacity: .5; color: var(--mute); cursor: default; }
+  .cell.unknown { --c: var(--mute); background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--mute) 22%, transparent) 3px 5px); border-style: dotted; color: var(--mute); cursor: default; }
   .heatcap { min-height: 20px; margin-top: 10px; }
   .heatkey { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font: 11px var(--mono); color: var(--mute); }
   .heatkey span:before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--c); margin-right: 5px; vertical-align: -1px; }
   .heatkey .clr:before { background: none; border: 1px dashed var(--mute); width: 7px; height: 7px; }
+  .heatkey .unk:before { background: none; border: 1px dotted var(--mute); width: 7px; height: 7px; }
   @media (prefers-reduced-motion: reduce) { .cell { transition: none; } }
 
   /* tabs */
@@ -261,9 +265,13 @@
                   'medium': v.medium, 'low': v.low}}) %}
             {% endif %}
           {% endfor %}
+          {# repos_ok = fetched cleanly this sweep. A repo in repos_failed was
+             never fetched, so its alert state is UNKNOWN — not "clear". #}
+          {% set okset = summary.repos_ok | map('lower') | list %}
           {% set cells = namespace(list=[]) %}
           {% for r in repos %}
             {% set c = bymap.get(r.name|lower) %}
+            {% set ok = r.name|lower in okset %}
             {% set w = namespace(v=4, word='clear') %}
             {% for s in sev_names %}
               {% if w.v == 4 and c and c.get(s, 0) %}
@@ -271,7 +279,7 @@
                 {% set w.word = s %}
               {% endif %}
             {% endfor %}
-            {% set cells.list = cells.list + [{'name': r.name, 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word}] %}
+            {% set cells.list = cells.list + [{'name': r.name, 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word, 'ok': ok}] %}
           {% endfor %}
           {% set maxc = namespace(v=1) %}
           {% for e in cells.list %}
@@ -287,9 +295,12 @@
                         aria-label="{{ e.name }}: {{ e.total }} open, worst {{ e.word }}"
                         aria-pressed="false"
                         style="--c:var(--{{ sev_tok[e.worst] }});--i:{{ '%.2f'|format(0.25 + 0.75 * e.total / maxc.v) }}">{{ e.total }}</button>
-                {% else %}
+                {% elif e.ok %}
                 <button class="cell clear" data-cap="{{ e.name }}: clear"
                         aria-label="{{ e.name }}: clear" disabled style="--i:0"></button>
+                {% else %}
+                <button class="cell unknown" data-cap="{{ e.name }}: unknown — last sweep failed"
+                        aria-label="{{ e.name }}: unknown, last sweep failed" disabled style="--i:0">?</button>
                 {% endif %}
               {% endfor %}
             </div>
@@ -297,7 +308,7 @@
             <div class="heatkey">
               <span style="--c:var(--crit)">crit</span><span style="--c:var(--high)">high</span>
               <span style="--c:var(--med)">med</span><span style="--c:var(--low)">low</span>
-              <span class="clr">clear</span>
+              <span class="clr">clear</span><span class="unk">unknown</span>
             </div>
           </div>
         </div>
@@ -309,11 +320,18 @@
             <tbody id="per">
               {% for r in repos %}
                 {% set c = bymap.get(r.name|lower) %}
+                {% set ok = r.name|lower in okset %}
                 <tr class="per-row">
                   <td><span class="o">{{ r.name.split('/')[0] }}/</span>{{ r.name.split('/')[1:] | join('/') }}</td>
+                  {% if not ok and not c %}
+                  <td class="n unk" title="last sweep failed for this repo">—</td>
+                  <td class="n unk">—</td>
+                  <td class="n unk">—</td>
+                  {% else %}
                   <td class="n{% if not c or not c.total %} zero{% endif %}">{{ c.total if c else 0 }}</td>
                   <td class="n{% if c and c.critical %} c-crit{% else %} zero{% endif %}">{{ c.critical if c else 0 }}</td>
                   <td class="n{% if c and c.high %} c-high{% else %} zero{% endif %}">{{ c.high if c else 0 }}</td>
+                  {% endif %}
                 </tr>
               {% else %}
                 <tr><td class="opacity-60">no repos watched yet</td><td></td><td></td><td></td></tr>
@@ -360,6 +378,9 @@
   {% if summary %}
   <section class="glass-card p-5 mt-6" aria-label="Open alerts">
     <h2 class="display font-semibold mb-2">Open alerts</h2>
+    {% if summary.repos_failed %}
+    <p class="unknote" role="note">Last sweep could not read: {{ summary.repos_failed }} — those repos' alert state is unknown, not zero.</p>
+    {% endif %}
     <div class="toolbar">
       <input class="field" id="q" type="search" placeholder="Search repo, package, CVE…" aria-label="Search alerts">
       <select class="field" id="sort" aria-label="Sort alerts">
@@ -370,7 +391,7 @@
       <button class="field fav" id="fav" aria-pressed="false">★ Fav only</button>
       <button class="field chipf" id="repochip" hidden></button>
     </div>
-    <div id="list">
+    <div id="list"{% if summary.repos_failed %} data-failed="{{ summary.repos_failed }}"{% endif %}>
       {% for a in alerts %}
       <a class="row" href="{{ a.html_url }}" target="_blank" rel="noopener"
          data-repo="{{ a.repo }}" data-rank="{{ a.severity_rank }}" data-branch="{{ a.branch }}"
@@ -592,7 +613,9 @@ async function sweepNow() {
       p.className = 'none';
       p.textContent = rows.length
         ? 'No alerts match. Clear the search or the fav filter.'
-        : 'Nothing open — all clear.';
+        : (listBox.dataset.failed
+            ? 'Nothing open in the repos that were read. Unreadable repos are unknown, not clear.'
+            : 'Nothing open — all clear.');
       listBox.appendChild(p);
     }
     pager.innerHTML = total ? pagerHtml(total, pages, PG.alerts, 'alerts') : '';
