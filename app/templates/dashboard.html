@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>repo-watcher</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(59,130,246,.14), transparent 60%),
+      radial-gradient(900px 600px at -10% 30%, rgba(168,85,247,.10), transparent 55%),
+      #0b0f17;
+    min-height: 100vh;
+  }
+  [data-theme="light"] body {
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(59,130,246,.18), transparent 60%),
+      radial-gradient(900px 600px at -10% 30%, rgba(168,85,247,.12), transparent 55%),
+      #f3f5f9;
+  }
+  .glass-card {
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.10);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border-radius: 1.25rem;
+  }
+  [data-theme="light"] .glass-card {
+    background: rgba(255,255,255,.65);
+    border: 1px solid rgba(15,23,42,.08);
+    box-shadow: 0 8px 30px rgba(15,23,42,.06);
+  }
+  .mono { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body class="text-base-content">
+<div class="max-w-6xl mx-auto px-5 py-8">
+
+  <header class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">repo-watcher</h1>
+      <p class="text-sm opacity-60 mt-1">
+        {{ repos|length }} repos · sweeps at {{ sweep_times|join(', ') }}
+        {% if summary %} · last sweep {{ summary.finished_at or summary.started_at }}{% endif %}
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="theme" class="glass-card px-4 py-2 text-sm cursor-pointer" onclick="toggleTheme()">☀︎ light</button>
+      <button id="sweep" class="btn btn-primary btn-sm rounded-xl" onclick="sweepNow()">Sweep now</button>
+    </div>
+  </header>
+
+  {% if not summary %}
+  <div class="glass-card p-8 text-center opacity-70">
+    No sweeps yet. Click <b>Sweep now</b> or wait for {{ sweep_times|join(' / ') }}.
+  </div>
+  {% else %}
+
+  <section class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+    <div class="glass-card p-5">
+      <div class="text-3xl font-semibold mono">{{ summary.total }}</div>
+      <div class="text-xs opacity-60 mt-1">open alerts</div>
+    </div>
+    {% for sev, cls in [('critical','text-red-400'),('high','text-orange-400'),('medium','text-yellow-400'),('low','text-sky-400')] %}
+    <div class="glass-card p-5">
+      <div class="text-3xl font-semibold mono {{ cls }}">{{ summary.by_severity.get(sev, 0) }}</div>
+      <div class="text-xs opacity-60 mt-1">{{ sev }}</div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="grid md:grid-cols-2 gap-4 mb-6">
+    <div class="glass-card p-5">
+      <h2 class="font-medium mb-3">Since previous sweep</h2>
+      <div class="flex gap-6 text-sm">
+        <span class="mono">+{{ summary.new }} new</span>
+        <span class="mono opacity-70">−{{ summary.fixed }} fixed</span>
+        <span class="mono opacity-50">{{ summary.by_source.dependabot }} dependabot · {{ summary.by_source.code_scanning }} code-scanning</span>
+      </div>
+      {% if summary.repos_failed %}
+      <p class="text-xs text-orange-400 mt-3">inaccessible: {{ summary.repos_failed }}</p>
+      {% endif %}
+    </div>
+    <div class="glass-card p-5">
+      <h2 class="font-medium mb-3">Per repo</h2>
+      <table class="w-full text-sm">
+        <tbody>
+        {% for repo, c in summary.by_repo.items() %}
+          <tr class="border-b border-white/5 last:border-0">
+            <td class="py-1.5">{{ repo }}</td>
+            <td class="py-1.5 text-right mono">{{ c.total }}</td>
+            <td class="py-1.5 text-right mono text-red-400">{{ c.critical }}</td>
+            <td class="py-1.5 text-right mono text-orange-400">{{ c.high }}</td>
+          </tr>
+        {% else %}
+          <tr><td class="opacity-60 py-1.5">no open alerts anywhere 🎉</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="glass-card p-5 mb-6 overflow-x-auto">
+    <h2 class="font-medium mb-3">Open alerts</h2>
+    <table class="w-full text-sm">
+      <thead class="opacity-60 text-xs">
+        <tr>
+          <th class="text-left py-2 font-medium">Repo</th>
+          <th class="text-left py-2 font-medium">Sev</th>
+          <th class="text-left py-2 font-medium">Source</th>
+          <th class="text-left py-2 font-medium">Package / rule</th>
+          <th class="text-left py-2 font-medium">Vulnerable</th>
+          <th class="text-left py-2 font-medium">Patched</th>
+          <th class="text-left py-2 font-medium">CVE</th>
+          <th class="text-left py-2 font-medium"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for a in alerts %}
+        <tr class="border-t border-white/5">
+          <td class="py-2">{{ a.repo }}</td>
+          <td class="py-2"><span class="badge badge-sm
+            {%- if a.severity == 'critical' %} badge-error{% elif a.severity == 'high' %} badge-warning{% elif a.severity == 'medium' %} badge-info{% else %} badge-ghost{% endif %}">{{ a.severity }}</span></td>
+          <td class="py-2 opacity-70">{{ 'dependabot' if a.source == 'dependabot' else 'code scan' }}</td>
+          <td class="py-2">{{ a.package }}{% if a.title %}<div class="text-xs opacity-50 max-w-md truncate">{{ a.title }}</div>{% endif %}</td>
+          <td class="py-2 mono text-xs">{{ a.vulnerable_range or '—' }}</td>
+          <td class="py-2 mono text-xs">{{ a.first_patched or 'unavailable' }}</td>
+          <td class="py-2 mono text-xs">{{ a.cve or '—' }}</td>
+          <td class="py-2"><a class="link link-hover text-xs" href="{{ a.html_url }}" target="_blank">alert ↗</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="py-3 opacity-60">nothing open</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="glass-card p-5">
+    <h2 class="font-medium mb-3">Sweep history</h2>
+    <table class="w-full text-sm">
+      <tbody>
+      {% for s in sweeps[:10] %}
+        <tr class="border-b border-white/5 last:border-0">
+          <td class="py-1.5 mono">{{ s.finished_at or s.started_at }}</td>
+          <td class="py-1.5 mono text-right">{{ s.total_open }} open</td>
+          <td class="py-1.5 text-right text-xs opacity-60">{{ s.repos_ok.split(',')|length }} ok{% if s.repos_failed %} · <span class="text-orange-400">failed</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% endif %}
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.dataset.theme === 'dark' ? 'light' : 'dark';
+  html.dataset.theme = next;
+  localStorage.setItem('rw-theme', next);
+  document.getElementById('theme').textContent = next === 'dark' ? '☀︎ light' : '☾ dark';
+}
+if (localStorage.getItem('rw-theme')) {
+  document.documentElement.dataset.theme = localStorage.getItem('rw-theme');
+  document.getElementById('theme').textContent =
+    localStorage.getItem('rw-theme') === 'dark' ? '☀︎ light' : '☾ dark';
+}
+async function sweepNow() {
+  const btn = document.getElementById('sweep');
+  btn.disabled = true; btn.textContent = 'Sweeping…';
+  try {
+    const r = await fetch('/api/sweep', { method: 'POST' });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) { console.error(e); }
+  location.reload();
+}
+</script>
+</body>
+</html>
