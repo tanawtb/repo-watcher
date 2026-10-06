@@ -118,7 +118,7 @@ class GitHubClient:
                     "number": a["number"],
                     "severity": sev,
                     "package": tool,
-                    "manifest": inst.get("path", ""),
+                    "manifest": ((inst.get("location") or {}).get("path") or ""),
                     "vulnerable_range": rule.get("id", ""),
                     "first_patched": None,
                     "title": rule.get("description") or "",

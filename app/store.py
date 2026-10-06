@@ -135,7 +135,10 @@ class Store:
     def open_alerts(self) -> list[sqlite3.Row]:
         """All alerts not reconciled as fixed — including repos whose last fetch failed."""
         return self._conn.execute(
-            "SELECT * FROM alerts WHERE fixed_sweep IS NULL ORDER BY repo, source, number"
+            "SELECT * FROM alerts WHERE fixed_sweep IS NULL "
+            "ORDER BY repo, CASE severity "
+            "WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 "
+            "WHEN 'low' THEN 3 ELSE 4 END, number"
         ).fetchall()
 
     @_sync

@@ -6,6 +6,9 @@
 <title>repo-watcher</title>
 <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: dark; }
   body {
@@ -33,15 +36,73 @@
     border: 1px solid rgba(15,23,42,.08);
     box-shadow: 0 8px 30px rgba(15,23,42,.06);
   }
-  .mono { font-variant-numeric: tabular-nums; }
+  .display { font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  /* severity rails — the scan axis of the list */
+  .sev-critical { --sev: #fb4d5c; }
+  .sev-high     { --sev: #fb923c; }
+  .sev-medium   { --sev: #eab308; }
+  .sev-low      { --sev: #38bdf8; }
+  .sev-unknown  { --sev: #64748b; }
+  .sev-word { color: var(--sev); }
+  [data-theme="light"] .sev-medium { --sev: #a16207; }
+  [data-theme="light"] .sev-low { --sev: #0369a1; }
+  [data-theme="light"] .sev-high { --sev: #c2410c; }
+  [data-theme="light"] .sev-critical { --sev: #dc2626; }
+
+  .repo-head {
+    display: flex; align-items: baseline; gap: .6rem;
+    padding: 1.1rem .25rem .45rem;
+  }
+  .repo-head:first-child { padding-top: .25rem; }
+  .repo-owner { opacity: .45; }
+  .repo-name { font-weight: 600; }
+  .branch-chip {
+    font-size: .68rem; padding: .1rem .45rem; border-radius: .5rem;
+    border: 1px solid rgba(255,255,255,.14); opacity: .75;
+  }
+  [data-theme="light"] .branch-chip { border-color: rgba(15,23,42,.14); }
+  .repo-count { margin-left: auto; font-size: .72rem; opacity: .5; }
+
+  .alert-row {
+    display: grid; grid-template-columns: 3px minmax(0,1fr) auto;
+    gap: .9rem; align-items: center;
+    padding: .65rem .75rem .65rem .55rem;
+    border-radius: .75rem;
+    text-decoration: none; color: inherit;
+    transition: background .15s ease;
+  }
+  .alert-row:hover, .alert-row:focus-visible { background: rgba(255,255,255,.055); }
+  [data-theme="light"] .alert-row:hover,
+  [data-theme="light"] .alert-row:focus-visible { background: rgba(15,23,42,.045); }
+  .alert-row:focus-visible { outline: 2px solid var(--sev); outline-offset: 1px; }
+  .rail { align-self: stretch; border-radius: 3px; background: var(--sev); }
+  .alert-main { min-width: 0; }
+  .alert-pkg { font-weight: 500; }
+  .alert-desc {
+    font-size: .78rem; opacity: .55; margin-top: .1rem;
+    display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .alert-meta { text-align: right; white-space: nowrap; }
+  .alert-ver { font-size: .78rem; }
+  .alert-ver .fix { opacity: .55; }
+  .alert-tags { font-size: .7rem; opacity: .6; margin-top: .15rem; }
+  @media (max-width: 640px) {
+    .alert-row { grid-template-columns: 3px minmax(0,1fr); }
+    .alert-meta { grid-column: 2; text-align: left; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .alert-row { transition: none; }
+  }
 </style>
 </head>
 <body class="text-base-content">
-<div class="max-w-6xl mx-auto px-5 py-8">
+<div class="max-w-5xl mx-auto px-5 py-8">
 
   <header class="flex items-center justify-between mb-8">
     <div>
-      <h1 class="text-2xl font-semibold tracking-tight">repo-watcher</h1>
+      <h1 class="display text-2xl font-bold tracking-tight">repo-watcher</h1>
       <p class="text-sm opacity-60 mt-1">
         {{ repos|length }} repos · sweeps at {{ sweep_times|join(', ') }}
         {% if summary %} · last sweep {{ summary.finished_at or summary.started_at }}{% endif %}
@@ -61,12 +122,12 @@
 
   <section class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
     <div class="glass-card p-5">
-      <div class="text-3xl font-semibold mono">{{ summary.total }}</div>
+      <div class="display text-3xl font-bold mono">{{ summary.total }}</div>
       <div class="text-xs opacity-60 mt-1">open alerts</div>
     </div>
-    {% for sev, cls in [('critical','text-red-400'),('high','text-orange-400'),('medium','text-yellow-400'),('low','text-sky-400')] %}
+    {% for sev, cls in [('critical','sev-critical'),('high','sev-high'),('medium','sev-medium'),('low','sev-low')] %}
     <div class="glass-card p-5">
-      <div class="text-3xl font-semibold mono {{ cls }}">{{ summary.by_severity.get(sev, 0) }}</div>
+      <div class="display text-3xl font-bold mono sev-word {{ cls }}">{{ summary.by_severity.get(sev, 0) }}</div>
       <div class="text-xs opacity-60 mt-1">{{ sev }}</div>
     </div>
     {% endfor %}
@@ -74,7 +135,7 @@
 
   <section class="grid md:grid-cols-2 gap-4 mb-6">
     <div class="glass-card p-5">
-      <h2 class="font-medium mb-3">Since previous sweep</h2>
+      <h2 class="display font-semibold mb-3">Since previous sweep</h2>
       <div class="flex gap-6 text-sm">
         <span class="mono">+{{ summary.new }} new</span>
         <span class="mono opacity-70">−{{ summary.fixed }} fixed</span>
@@ -85,7 +146,7 @@
       {% endif %}
     </div>
     <div class="glass-card p-5">
-      <h2 class="font-medium mb-3">Per repo</h2>
+      <h2 class="display font-semibold mb-3">Per repo</h2>
       <table class="w-full text-sm">
         <tbody>
         {% for repo, c in summary.by_repo.items() %}
@@ -103,45 +164,39 @@
     </div>
   </section>
 
-  <section class="glass-card p-5 mb-6 overflow-x-auto">
-    <h2 class="font-medium mb-3">Open alerts</h2>
-    <table class="w-full text-sm">
-      <thead class="opacity-60 text-xs">
-        <tr>
-          <th class="text-left py-2 font-medium">Repo</th>
-          <th class="text-left py-2 font-medium">Branch</th>
-          <th class="text-left py-2 font-medium">Sev</th>
-          <th class="text-left py-2 font-medium">Source</th>
-          <th class="text-left py-2 font-medium">Package / rule</th>
-          <th class="text-left py-2 font-medium">Vulnerable</th>
-          <th class="text-left py-2 font-medium">Patched</th>
-          <th class="text-left py-2 font-medium">CVE</th>
-          <th class="text-left py-2 font-medium"></th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for a in alerts %}
-        <tr class="border-t border-white/5">
-          <td class="py-2">{{ a.repo }}</td>
-          <td class="py-2 mono text-xs opacity-70">{{ a.branch or '—' }}</td>
-          <td class="py-2"><span class="badge badge-sm
-            {%- if a.severity == 'critical' %} badge-error{% elif a.severity == 'high' %} badge-warning{% elif a.severity == 'medium' %} badge-info{% else %} badge-ghost{% endif %}">{{ a.severity }}</span></td>
-          <td class="py-2 opacity-70">{{ 'dependabot' if a.source == 'dependabot' else 'code scan' }}</td>
-          <td class="py-2">{{ a.package }}{% if a.title %}<div class="text-xs opacity-50 max-w-md truncate">{{ a.title }}</div>{% endif %}</td>
-          <td class="py-2 mono text-xs">{{ a.vulnerable_range or '—' }}</td>
-          <td class="py-2 mono text-xs">{{ a.first_patched or 'unavailable' }}</td>
-          <td class="py-2 mono text-xs">{{ a.cve or '—' }}</td>
-          <td class="py-2"><a class="link link-hover text-xs" href="{{ a.html_url }}" target="_blank">alert ↗</a></td>
-        </tr>
-      {% else %}
-        <tr><td colspan="9" class="py-3 opacity-60">nothing open</td></tr>
+  <section class="glass-card p-5 mb-6">
+    <h2 class="display font-semibold mb-2">Open alerts</h2>
+    {% for repo, rows in alerts|groupby('repo') %}
+      <div class="repo-head">
+        <span class="display"><span class="repo-owner">{{ repo.split('/')[0] }}</span><span class="repo-owner">/</span><span class="repo-name">{{ repo.split('/')[1] }}</span></span>
+        {% if rows[0].branch %}<span class="branch-chip mono">{{ rows[0].branch }}</span>{% endif %}
+        <span class="repo-count mono">{{ rows|length }} open</span>
+      </div>
+      {% for a in rows %}
+      <a class="alert-row sev-{{ a.severity }}" href="{{ a.html_url }}" target="_blank" rel="noopener">
+        <span class="rail" aria-hidden="true"></span>
+        <span class="alert-main">
+          <span class="alert-pkg">{{ a.package }}</span>
+          {% if a.title %}<div class="alert-desc">{{ a.title }}</div>{% endif %}
+        </span>
+        <span class="alert-meta">
+          <span class="alert-ver mono">{{ a.vulnerable_range or '—' }}
+            {%- if a.source == 'dependabot' %} <span class="fix">→ {{ a.first_patched or 'no patch' }}</span>{% endif %}</span>
+          <div class="alert-tags">
+            <span class="sev-word">{{ a.severity }}</span>
+            · {{ 'dependabot' if a.source == 'dependabot' else 'code scan' }}
+            {%- if a.cve %} · {{ a.cve }}{% endif %}
+          </div>
+        </span>
+      </a>
       {% endfor %}
-      </tbody>
-    </table>
+    {% else %}
+      <p class="py-4 opacity-60">Nothing open — all clear.</p>
+    {% endfor %}
   </section>
 
   <section class="glass-card p-5">
-    <h2 class="font-medium mb-3">Sweep history</h2>
+    <h2 class="display font-semibold mb-3">Sweep history</h2>
     <table class="w-full text-sm">
       <tbody>
       {% for s in sweeps[:10] %}
