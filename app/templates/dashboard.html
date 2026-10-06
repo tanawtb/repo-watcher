@@ -89,7 +89,7 @@
 
   .repo-head {
     display: flex; align-items: baseline; gap: .6rem;
-    padding: 1.1rem .25rem .45rem;
+    padding: .95rem .25rem .4rem;
   }
   .repo-head:first-child { padding-top: .25rem; }
   .repo-owner { opacity: .45; }
@@ -114,7 +114,7 @@
   .alert-row {
     display: grid; grid-template-columns: 3px minmax(0,1fr) auto;
     gap: .9rem; align-items: center;
-    padding: .65rem .75rem .65rem .55rem;
+    padding: .42rem .75rem .42rem .55rem;
     border-radius: .75rem;
     text-decoration: none; color: inherit;
     transition: background .15s ease;
@@ -127,13 +127,13 @@
   .alert-main { min-width: 0; }
   .alert-pkg { font-weight: 500; }
   .alert-desc {
-    font-size: .78rem; opacity: .55; margin-top: .1rem;
+    font-size: .78rem; opacity: .55; margin-top: .05rem;
     display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
   }
   .alert-meta { text-align: right; white-space: nowrap; }
   .alert-ver { font-size: .78rem; }
   .alert-ver .fix { opacity: .55; }
-  .alert-tags { font-size: .7rem; opacity: .6; margin-top: .15rem; }
+  .alert-tags { font-size: .7rem; opacity: .6; margin-top: .1rem; }
   .repo-group[hidden] { display: none; }
   @media (max-width: 640px) {
     .alert-row { grid-template-columns: 3px minmax(0,1fr); }
@@ -147,7 +147,7 @@
 <body class="text-base-content">
 <div class="max-w-5xl mx-auto px-5 py-8">
 
-  <header class="flex items-center justify-between mb-8">
+  <header class="flex flex-wrap items-center justify-between gap-y-3 mb-8">
     <div>
       <h1 class="display text-2xl font-bold tracking-tight">repo-watcher</h1>
       <p class="text-sm opacity-60 mt-1">
