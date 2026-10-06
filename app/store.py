@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS repos (
   added_at TEXT NOT NULL,
   note TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 """
 
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -171,12 +175,18 @@ class Store:
 
     @_sync
     def open_alerts(self) -> list[sqlite3.Row]:
-        """All alerts not reconciled as fixed — including repos whose last fetch failed."""
+        """Open alerts for watched repos — including repos whose last fetch failed.
+
+        Alerts of unwatched repos stay in history (re-add the repo and they
+        return) but never show as open: nothing sweeps them, so they could
+        never reconcile.
+        """
         return self._conn.execute(
-            "SELECT * FROM alerts WHERE fixed_sweep IS NULL "
-            "ORDER BY repo, CASE severity "
+            "SELECT * FROM alerts a WHERE a.fixed_sweep IS NULL "
+            "AND EXISTS (SELECT 1 FROM repos r WHERE r.name = a.repo COLLATE NOCASE) "
+            "ORDER BY a.repo, CASE a.severity "
             "WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 "
-            "WHEN 'low' THEN 3 ELSE 4 END, number"
+            "WHEN 'low' THEN 3 ELSE 4 END, a.number"
         ).fetchall()
 
     @_sync
@@ -220,37 +230,47 @@ class Store:
     @_sync
     def update_repo(self, name: str, *, new_name: str | None = None, note: str | None = None) -> sqlite3.Row:
         clean = validate_repo_name(name)
-        if not self._conn.execute("SELECT 1 FROM repos WHERE name = ?", (clean,)).fetchone():
+        row = self._conn.execute("SELECT name FROM repos WHERE name = ?", (clean,)).fetchone()
+        if not row:
             raise UnknownRepo(f"{clean} is not watched")
+        stored = row["name"]  # canonical casing; the PK match is NOCASE
         if new_name is not None:
             target = validate_repo_name(new_name)
-            if target.lower() != clean.lower() and self._conn.execute(
+            if target.lower() != stored.lower() and self._conn.execute(
                 "SELECT 1 FROM repos WHERE name = ?", (target,)
             ).fetchone():
                 raise DuplicateRepo(f"{target} is already watched")
-            if target.lower() != clean.lower():
+            if target.lower() != stored.lower():
                 # Rename cascades to alerts/favorites so history follows the repo.
-                self._conn.execute("UPDATE alerts SET repo=? WHERE repo=?", (target, clean))
-                self._conn.execute("UPDATE favorites SET repo=? WHERE repo=?", (target, clean))
-                self._conn.execute("UPDATE repos SET name=? WHERE name=?", (target, clean))
-                clean = target
+                # alerts/favorites are case-sensitive, so match the stored casing.
+                self._conn.execute("UPDATE alerts SET repo=? WHERE repo=?", (target, stored))
+                self._conn.execute("UPDATE favorites SET repo=? WHERE repo=?", (target, stored))
+                self._conn.execute("UPDATE repos SET name=? WHERE name=?", (target, stored))
+                stored = target
         if note is not None:
-            self._conn.execute("UPDATE repos SET note=? WHERE name=?", (note.strip(), clean))
+            self._conn.execute("UPDATE repos SET note=? WHERE name=?", (note.strip(), stored))
         self._conn.commit()
-        return self._conn.execute("SELECT * FROM repos WHERE name = ?", (clean,)).fetchone()
+        return self._conn.execute("SELECT * FROM repos WHERE name = ?", (stored,)).fetchone()
 
     @_sync
     def delete_repo(self, name: str) -> None:
         clean = validate_repo_name(name)
-        if not self._conn.execute("SELECT 1 FROM repos WHERE name = ?", (clean,)).fetchone():
+        row = self._conn.execute("SELECT name FROM repos WHERE name = ?", (clean,)).fetchone()
+        if not row:
             raise UnknownRepo(f"{clean} is not watched")
-        self._conn.execute("DELETE FROM repos WHERE name = ?", (clean,))
-        self._conn.execute("DELETE FROM favorites WHERE repo = ?", (clean,))
+        self._conn.execute("DELETE FROM repos WHERE name = ?", (row["name"],))
+        self._conn.execute("DELETE FROM favorites WHERE repo = ?", (row["name"],))
         self._conn.commit()
 
     @_sync
     def seed_repos(self, names: list[str]) -> None:
-        """Idempotently import .env REPOS into the DB on first run."""
+        """Import .env REPOS exactly once; the DB is the source of truth after.
+
+        The marker persists even if every repo is later deleted, so a
+        deliberately emptied list never resurrects on restart.
+        """
+        if self._conn.execute("SELECT 1 FROM meta WHERE key = 'repos_seeded'").fetchone():
+            return
         for raw in names:
             try:
                 clean = validate_repo_name(raw)
@@ -260,6 +280,9 @@ class Store:
                 "INSERT OR IGNORE INTO repos (name, added_at, note) VALUES (?, ?, '')",
                 (clean, self._now()),
             )
+        self._conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('repos_seeded', ?)", (self._now(),)
+        )
         self._conn.commit()
 
     @_sync

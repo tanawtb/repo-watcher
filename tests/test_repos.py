@@ -85,6 +85,40 @@ class RepoCrudTest(unittest.TestCase):
         with self.assertRaises(UnknownRepo):
             self.store.delete_repo("no/such")
 
+    def test_seed_happens_once_even_if_all_deleted(self) -> None:
+        self.store.seed_repos(["a/x", "b/y"])
+        self.store.delete_repo("a/x")
+        self.store.delete_repo("b/y")
+        self.store.seed_repos(["a/x", "b/y"])  # restart with same .env
+        self.assertEqual([], self.store.repo_names())
+
+    def test_mixed_case_rename_cascades_to_history(self) -> None:
+        # Stored lowercase; caller uses different casing. alerts/favorites are
+        # case-sensitive, so the cascade must use the stored canonical name.
+        self.store.add_repo("acme/web-app")
+        self.store.set_favorite("acme/web-app", True)
+        self.store.upsert_alert(1, "acme/web-app", {
+            "source": "dependabot", "number": 1, "severity": "high", "package": "x",
+            "manifest": "", "vulnerable_range": "", "first_patched": None,
+            "title": "", "cve": "", "html_url": "",
+        })
+        self.store.update_repo("ACME/Web-App", new_name="acme2/web-app")
+        self.assertEqual("acme2/web-app", self.store.open_alerts()[0]["repo"])
+        self.assertIn("acme2/web-app", self.store.favorite_repos())
+
+    def test_unwatched_repo_alerts_hidden_until_readded(self) -> None:
+        self.store.add_repo("a/x")
+        self.store.upsert_alert(1, "a/x", {
+            "source": "dependabot", "number": 1, "severity": "high", "package": "x",
+            "manifest": "", "vulnerable_range": "", "first_patched": None,
+            "title": "", "cve": "", "html_url": "",
+        })
+        self.assertEqual(1, len(self.store.open_alerts()))
+        self.store.delete_repo("a/x")
+        self.assertEqual([], self.store.open_alerts())  # ghost alerts gone
+        self.store.add_repo("a/x")
+        self.assertEqual(1, len(self.store.open_alerts()))  # history preserved
+
     def test_seed_is_idempotent_and_skips_invalid(self) -> None:
         self.store.seed_repos(["a/x", "bad name", "a/x", "b/y"])
         self.assertEqual(["a/x", "b/y"], self.store.repo_names())
