@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="en" data-theme="{{ theme }}">
 <head>
+<script>
+// One-time migration: older builds saved the theme in localStorage.
+(function () {
+  if (!/(?:^|;\s*)rw-theme=/.test(document.cookie)) {
+    var saved = localStorage.getItem('rw-theme');
+    if (saved === 'light' || saved === 'dark') {
+      document.cookie = 'rw-theme=' + saved + '; path=/; max-age=31536000; SameSite=Lax';
+      document.documentElement.dataset.theme = saved;
+      localStorage.removeItem('rw-theme');
+    }
+  }
+})();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>repo-watcher</title>
@@ -274,6 +287,9 @@ function toggleTheme() {
   document.cookie = 'rw-theme=' + next + '; path=/; max-age=31536000; SameSite=Lax';
   document.getElementById('theme').textContent = next === 'dark' ? '☀︎ light' : '☾ dark';
 }
+// Keep the label truthful if the head migration flipped the theme post-render.
+document.getElementById('theme').textContent =
+  document.documentElement.dataset.theme === 'dark' ? '☀︎ light' : '☾ dark';
 async function sweepNow() {
   const btn = document.getElementById('sweep');
   btn.disabled = true; btn.textContent = 'Sweeping…';
