@@ -241,9 +241,16 @@
 
           {% set sev_names = ['critical','high','medium','low'] %}
           {% set sev_tok = ['crit','high','med','low'] %}
+          {# by_repo keys come from alerts.repo; repos.name may differ in case after
+             a delete+re-add (open_alerts matches COLLATE NOCASE), so match loosely. #}
+          {% set bymap = {} %}
+          {% for k, v in summary.by_repo.items() %}
+            {% set _ = bymap.update({k|lower: {'key': k, 'c': v}}) %}
+          {% endfor %}
           {% set cells = namespace(list=[]) %}
           {% for r in repos %}
-            {% set c = summary.by_repo.get(r.name) %}
+            {% set hit = bymap.get(r.name|lower) %}
+            {% set c = hit.c if hit else none %}
             {% set w = namespace(v=4, word='clear') %}
             {% for s in sev_names %}
               {% if w.v == 4 and c and c.get(s, 0) %}
@@ -251,7 +258,7 @@
                 {% set w.word = s %}
               {% endif %}
             {% endfor %}
-            {% set cells.list = cells.list + [{'name': r.name, 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word}] %}
+            {% set cells.list = cells.list + [{'name': r.name, 'key': (hit.key if hit else r.name), 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word}] %}
           {% endfor %}
           {% set maxc = namespace(v=1) %}
           {% for e in cells.list %}
@@ -262,7 +269,7 @@
             <div class="heat" role="group" aria-label="Repos by worst open severity">
               {% for e in cells.list|sort(attribute='name')|sort(attribute='total', reverse=true)|sort(attribute='worst') %}
                 {% if e.total %}
-                <button class="cell" data-hr="{{ e.name }}"
+                <button class="cell" data-hr="{{ e.key }}"
                         data-cap="{{ e.name }}: {{ e.total }} open, worst {{ e.word }}"
                         aria-label="{{ e.name }}: {{ e.total }} open, worst {{ e.word }}"
                         aria-pressed="false"
@@ -288,7 +295,8 @@
             <thead><tr><th>Repo</th><th>Open</th><th>Crit</th><th>High</th></tr></thead>
             <tbody id="per">
               {% for r in repos %}
-                {% set c = summary.by_repo.get(r.name) %}
+                {% set hit = bymap.get(r.name|lower) %}
+                {% set c = hit.c if hit else none %}
                 <tr class="per-row">
                   <td><span class="o">{{ r.name.split('/')[0] }}/</span>{{ r.name.split('/')[1:] | join('/') }}</td>
                   <td class="n{% if not c or not c.total %} zero{% endif %}">{{ c.total if c else 0 }}</td>
@@ -463,15 +471,32 @@ async function sweepNow() {
   function headFor(repo) {
     if (heads.has(repo)) return heads.get(repo);
     const sample = rows.find(r => r.dataset.repo === repo);
-    const parts = repo.split('/');
+    const slash = repo.indexOf('/');
     const h = document.createElement('div');
     h.className = 'repo-head';
-    h.innerHTML =
-      '<button class="star" aria-label="Fav ' + repo + '">★</button>' +
-      '<span class="display"><span class="o">' + parts[0] + '/</span><span class="rn">' +
-      parts.slice(1).join('/') + '</span></span>' +
-      (sample && sample.dataset.branch ? '<span class="branch">' + sample.dataset.branch + '</span>' : '') +
-      '<span class="cnt"></span>';
+    const star = document.createElement('button');
+    star.className = 'star';
+    star.setAttribute('aria-label', 'Fav ' + repo);
+    star.textContent = '★';
+    const name = document.createElement('span');
+    name.className = 'display';
+    const owner = document.createElement('span');
+    owner.className = 'o';
+    owner.textContent = repo.slice(0, slash + 1);
+    const rn = document.createElement('span');
+    rn.className = 'rn';
+    rn.textContent = slash < 0 ? repo : repo.slice(slash + 1);
+    name.append(owner, rn);
+    h.append(star, name);
+    if (sample && sample.dataset.branch) {
+      const b = document.createElement('span');
+      b.className = 'branch';
+      b.textContent = sample.dataset.branch;
+      h.append(b);
+    }
+    const cnt = document.createElement('span');
+    cnt.className = 'cnt';
+    h.append(cnt);
     heads.set(repo, h);
     return h;
   }
@@ -500,6 +525,11 @@ async function sweepNow() {
         (P.page === pages ? ' disabled' : '') + '>→</button></div>' : '');
   }
 
+  // open alerts per repo, ignoring filters — headers and "Most alerts" sort
+  // report the repo's total, matching the pre-pagination behaviour.
+  const totals = new Map();
+  for (const r of rows) totals.set(r.dataset.repo, (totals.get(r.dataset.repo) || 0) + 1);
+
   function list(keep) {
     if (!keep) PG.alerts.page = 1;
     const term = q.value.trim().toLowerCase();
@@ -517,7 +547,7 @@ async function sweepNow() {
     const worst = g => Math.min(...g.map(r => +r.dataset.rank));
     const names = [...by.keys()].sort((x, y) => {
       if (key === 'repo') return x.localeCompare(y);
-      if (key === 'cnt') return by.get(y).length - by.get(x).length;
+      if (key === 'cnt') return totals.get(y) - totals.get(x);
       return worst(by.get(x)) - worst(by.get(y)) || x.localeCompare(y);
     });
     const flat = [];
@@ -534,7 +564,7 @@ async function sweepNow() {
       if (r.dataset.repo !== last) {
         last = r.dataset.repo;
         const h = headFor(last);
-        h.querySelector('.cnt').textContent = by.get(last).length + ' open';
+        h.querySelector('.cnt').textContent = totals.get(last) + ' open';
         const star = h.querySelector('.star');
         star.setAttribute('aria-pressed', String(r.dataset.fav === '1'));
         star.onclick = () => toggleFav(star, last);
@@ -563,7 +593,15 @@ async function sweepNow() {
 
   function repoChip() {
     chip.hidden = !repoFilter;
-    chip.innerHTML = repoFilter ? '<span>' + repoFilter + '</span><span aria-hidden="true">✕</span>' : '';
+    chip.textContent = '';
+    if (repoFilter) {
+      const nm = document.createElement('span');
+      nm.textContent = repoFilter;
+      const x = document.createElement('span');
+      x.setAttribute('aria-hidden', 'true');
+      x.textContent = '✕';
+      chip.append(nm, x);
+    }
     chip.setAttribute('aria-label', 'Clear repo filter');
   }
   function setHeatPressed() {
