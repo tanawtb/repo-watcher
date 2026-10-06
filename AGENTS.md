@@ -18,7 +18,7 @@ Instructions for AI agents working in this repository. This project is **public*
 
 ## Sweep model
 
-One sweep = fetch open alerts for every configured repo → insert into `alerts` keyed by `(repo, source, alert_number)` with `last_seen_sweep` → an alert absent from the newest sweep counts as fixed. Keep this invariant; the dashboard's new/fixed columns depend on it.
+One sweep = fetch open alerts for every configured repo → insert into `alerts` keyed by `(repo, source, alert_number)` with `last_seen_sweep` → an alert absent from the newest sweep counts as fixed **only if that sweep fetched the same `(repo, source)` cleanly**. A failed fetch must never reconcile: its alerts stay open (visible on the dashboard) so a live vulnerability is never silently hidden. Code-scanning 404 = advanced security not enabled (nothing to reconcile); 403 = permission failure (record, do not reconcile). Keep this invariant; `tests/test_sweeper.py` enforces it.
 
 ## Testing / verification
 

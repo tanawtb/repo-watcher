@@ -101,12 +101,18 @@ class Store:
         )
 
     @_sync
-    def mark_fixed(self, sweep_id: int) -> None:
-        """Alerts not seen in the newest sweep are fixed (or closed)."""
-        self._conn.execute(
-            "UPDATE alerts SET fixed_sweep=? WHERE fixed_sweep IS NULL AND last_seen_sweep<?",
-            (sweep_id, sweep_id),
-        )
+    def mark_fixed(self, sweep_id: int, fetched: list[tuple[str, str]]) -> None:
+        """Mark alerts fixed only where this sweep fetched that (repo, source) cleanly.
+
+        A failed fetch must never reconcile: its alerts stay open so a live
+        vulnerability is not silently hidden.
+        """
+        for repo, source in fetched:
+            self._conn.execute(
+                "UPDATE alerts SET fixed_sweep=? "
+                "WHERE fixed_sweep IS NULL AND last_seen_sweep<? AND repo=? AND source=?",
+                (sweep_id, sweep_id, repo, source),
+            )
         self._conn.commit()
 
     @_sync
@@ -122,15 +128,15 @@ class Store:
         return row["p"]
 
     @_sync
-    def open_alerts(self, sweep_id: int) -> list[sqlite3.Row]:
+    def open_alerts(self) -> list[sqlite3.Row]:
+        """All alerts not reconciled as fixed — including repos whose last fetch failed."""
         return self._conn.execute(
-            "SELECT * FROM alerts WHERE fixed_sweep IS NULL AND last_seen_sweep=? ORDER BY repo, source, number",
-            (sweep_id,),
+            "SELECT * FROM alerts WHERE fixed_sweep IS NULL ORDER BY repo, source, number"
         ).fetchall()
 
     @_sync
     def summary(self, sweep_id: int) -> dict[str, Any]:
-        rows = self.open_alerts(sweep_id)
+        rows = self.open_alerts()
         by_sev = {s: 0 for s in SEVERITIES}
         by_repo: dict[str, dict[str, int]] = {}
         by_source = {"dependabot": 0, "code_scanning": 0}

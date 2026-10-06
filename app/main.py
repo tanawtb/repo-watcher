@@ -27,7 +27,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     def index(request: Request) -> HTMLResponse:
         sweep_id = store.latest_sweep_id()
         summary = store.summary(sweep_id) if sweep_id else None
-        alerts = [dict(r) for r in store.open_alerts(sweep_id)] if sweep_id else []
+        alerts = [dict(r) for r in store.open_alerts()] if sweep_id else []
         sweeps = [dict(r) for r in store.sweeps()]
         return TEMPLATES.TemplateResponse(
             request,
@@ -51,7 +51,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     @app.get("/api/alerts")
     def api_alerts() -> list[dict]:
         sweep_id = store.latest_sweep_id()
-        return [dict(r) for r in store.open_alerts(sweep_id)] if sweep_id else []
+        return [dict(r) for r in store.open_alerts()] if sweep_id else []
 
     @app.get("/api/sweeps")
     def api_sweeps() -> list[dict]:

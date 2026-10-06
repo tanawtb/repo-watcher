@@ -19,6 +19,7 @@ def run_sweep(cfg: Config, store: Store) -> dict[str, Any]:
         sweep_id = store.begin_sweep()
         ok: list[str] = []
         failed: dict[str, str] = {}
+        fetched: list[tuple[str, str]] = []  # (repo, source) that returned cleanly
         total = 0
         try:
             for repo in cfg.repos:
@@ -26,29 +27,32 @@ def run_sweep(cfg: Config, store: Store) -> dict[str, Any]:
                 problems: list[str] = []
                 try:
                     alerts += client.dependabot_alerts(repo)
+                    fetched.append((repo, "dependabot"))
                 except RepoInaccessible as e:
                     problems.append(f"dependabot: {e}")
                 except Exception as e:  # noqa: BLE001 - report, never guess
                     problems.append(f"dependabot: {type(e).__name__}: {e}")
                 try:
                     alerts += client.code_scanning_alerts(repo)
+                    fetched.append((repo, "code_scanning"))
                 except RepoInaccessible as e:
-                    # 403/404 = advanced security not enabled for this repo/plan; not a repo failure.
-                    if "404" not in str(e) and "403" not in str(e):
+                    # 404 = advanced security not enabled: nothing to reconcile.
+                    # 403 = permission problem: record it, do NOT reconcile.
+                    if "404" not in str(e):
                         problems.append(f"code_scanning: {e}")
                 except Exception as e:  # noqa: BLE001
                     problems.append(f"code_scanning: {type(e).__name__}: {e}")
-                if problems and not alerts:
-                    failed[repo] = "; ".join(problems)
-                    continue
                 if problems:
                     failed[repo] = "; ".join(problems)
                 for a in alerts:
                     store.upsert_alert(sweep_id, repo, a)
                 total += len(alerts)
-                ok.append(repo)
+                if not problems:
+                    ok.append(repo)
         finally:
             client.close()
-        store.mark_fixed(sweep_id)
+        # Reconcile fixed state ONLY for sources that fetched cleanly this sweep,
+        # so an API failure can never mark live alerts as fixed.
+        store.mark_fixed(sweep_id, fetched)
         store.finish_sweep(sweep_id, ok, failed, total)
         return store.summary(sweep_id)
