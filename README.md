@@ -10,7 +10,7 @@ No local scanners. GitHub's own security findings are the source of truth.
 - SQLite history: every sweep is recorded; the dashboard shows open alerts, new-since-last-sweep, and fixed-since-last-sweep.
 - Scheduled sweeps at wall-clock times you set (`SWEEP_TIMES=09:30,15:30,17:30`), plus manual "sweep now".
 - Dashboard: dark theme first, light toggle, daisyUI/Tailwind via CDN — no build step. Star repos as favorites (persisted in SQLite); the "★ Fav only" toggle filters the list to starred repos. Search across repo/package/title/CVE, and sort by severity, repo, or alert count. Manage watched repos (add, rename, note, remove) from the "Watched repos" card.
-- MCP server at `/mcp` (Streamable HTTP, spec 2025-06-18): agents can list/add/update/remove repos, read alerts and summaries, and trigger sweeps with tools `list_repos`, `add_repo`, `update_repo`, `remove_repo`, `get_summary`, `list_alerts`, `trigger_sweep`.
+- MCP server at `/mcp` (Streamable HTTP, spec 2025-06-18): agents can list/add/update/remove repos, read alerts and summaries, and trigger sweeps with tools `list_repos`, `add_repo`, `update_repo`, `remove_repo`, `get_summary`, `list_alerts`, `trigger_sweep`. The endpoint enforces the spec's Host/Origin checks (DNS-rebinding protection); the bind address is always accepted, extra proxy hostnames go in `MCP_ALLOWED_HOSTS`.
 
 ## Quick start
 

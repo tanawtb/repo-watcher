@@ -32,6 +32,7 @@ class Config:
     db_path: str = "repo_watcher.db"
     host: str = "127.0.0.1"
     port: int = 8000
+    mcp_allowed_hosts: list[str] = field(default_factory=list)
 
 
 def load_config() -> Config:
@@ -54,4 +55,5 @@ def load_config() -> Config:
         db_path=os.environ.get("DB_PATH", "repo_watcher.db"),
         host=os.environ.get("HOST", "127.0.0.1"),
         port=int(os.environ.get("PORT", "8000")),
+        mcp_allowed_hosts=[h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()],
     )

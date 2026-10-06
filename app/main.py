@@ -10,7 +10,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastmcp.server.http import HostOriginGuardMiddleware
 from starlette.requests import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import Config, load_config
 from .mcp_server import build_mcp
@@ -18,6 +20,19 @@ from .store import DuplicateRepo, RepoError, Store, UnknownRepo
 from .sweeper import run_sweep
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+class _McpGuard:
+    """Host/Origin guard for /mcp only (FastAPI routes otherwise unguarded)."""
+
+    def __init__(self, app: ASGIApp, allowed_hosts: list[str] | None = None) -> None:
+        self.guard = HostOriginGuardMiddleware(app, allowed_hosts=allowed_hosts, mode="strict")
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope.get("path", "").startswith("/mcp"):
+            await self.guard(scope, receive, send)
+            return
+        await self.guard.app(scope, receive, send)
 
 
 def create_app(cfg: Config | None = None) -> FastAPI:
@@ -37,6 +52,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app = FastAPI(title="repo-watcher", docs_url=None, redoc_url=None, lifespan=lifespan)
     # Copy routes instead of mount() so POST /mcp works without a redirect.
     app.router.routes.extend(mcp_app.routes)
+    # routes.extend() skips mcp_app's middleware stack, so re-apply FastMCP's
+    # Host/Origin guard (spec-required DNS-rebinding/hotlinking protection)
+    # to /mcp only. Strict: validate Host on every /mcp request, Origin when
+    # present. Bind address is auto-allowed; add MCP_ALLOWED_HOSTS for proxies.
+    app.add_middleware(_McpGuard, allowed_hosts=cfg.mcp_allowed_hosts)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
