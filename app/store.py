@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS alerts (
   UNIQUE (repo, source, number)
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_last_seen ON alerts (last_seen_sweep);
+CREATE TABLE IF NOT EXISTS favorites (
+  repo TEXT PRIMARY KEY
+);
 """
 
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -140,6 +143,18 @@ class Store:
             "WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 "
             "WHEN 'low' THEN 3 ELSE 4 END, number"
         ).fetchall()
+
+    @_sync
+    def favorite_repos(self) -> set[str]:
+        return {r["repo"] for r in self._conn.execute("SELECT repo FROM favorites")}
+
+    @_sync
+    def set_favorite(self, repo: str, on: bool) -> None:
+        if on:
+            self._conn.execute("INSERT OR IGNORE INTO favorites (repo) VALUES (?)", (repo,))
+        else:
+            self._conn.execute("DELETE FROM favorites WHERE repo = ?", (repo,))
+        self._conn.commit()
 
     @_sync
     def summary(self, sweep_id: int) -> dict[str, Any]:

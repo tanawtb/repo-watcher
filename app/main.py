@@ -27,8 +27,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     def index(request: Request) -> HTMLResponse:
         sweep_id = store.latest_sweep_id()
         summary = store.summary(sweep_id) if sweep_id else None
-        alerts = [dict(r) for r in store.open_alerts()] if sweep_id else []
+        alerts = []
+        if sweep_id:
+            rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            alerts = [dict(r, severity_rank=rank.get(r["severity"], 4)) for r in store.open_alerts()]
         sweeps = [dict(r) for r in store.sweeps()]
+        favorites = store.favorite_repos()
         return TEMPLATES.TemplateResponse(
             request,
             "dashboard.html",
@@ -38,6 +42,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "sweeps": sweeps,
                 "repos": cfg.repos,
                 "sweep_times": cfg.sweep_times,
+                "favorites": favorites,
             },
         )
 
@@ -60,6 +65,15 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     @app.post("/api/sweep")
     def api_sweep() -> dict:
         return run_sweep(cfg, store)
+
+    @app.post("/api/favorite")
+    def api_favorite(payload: dict) -> dict:
+        repo = str(payload.get("repo", ""))
+        on = bool(payload.get("on", False))
+        if not repo:
+            return {"ok": False, "error": "repo required"}
+        store.set_favorite(repo, on)
+        return {"ok": True, "repo": repo, "on": on}
 
     _start_scheduler(cfg, store)
     return app
