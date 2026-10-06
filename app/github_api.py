@@ -11,7 +11,15 @@ CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}")
 
 
 class RepoInaccessible(Exception):
-    """404/403 on a repo: not visible to this token. Never guess its state."""
+    """404/403 on a repo: not visible to this token. Never guess its state.
+
+    `status` carries the HTTP status so callers can distinguish a benign 404
+    (feature not enabled) from a 403 permission failure without string matching.
+    """
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class GitHubClient:
@@ -35,11 +43,11 @@ class GitHubClient:
         while url:
             resp = self._client.get(url)
             if resp.status_code in (403, 404):
-                raise RepoInaccessible(f"HTTP {resp.status_code}")
+                raise RepoInaccessible(f"HTTP {resp.status_code}", resp.status_code)
             resp.raise_for_status()
             page = resp.json()
             if isinstance(page, dict):  # error envelope
-                raise RepoInaccessible(page.get("message", "unknown error"))
+                raise RepoInaccessible(page.get("message", "unknown error"), resp.status_code)
             items.extend(page)
             link = resp.headers.get("Link", "")
             url = None

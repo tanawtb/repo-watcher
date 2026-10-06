@@ -38,7 +38,7 @@ def run_sweep(cfg: Config, store: Store) -> dict[str, Any]:
                 except RepoInaccessible as e:
                     # 404 = advanced security not enabled: nothing to reconcile.
                     # 403 = permission problem: record it, do NOT reconcile.
-                    if "404" not in str(e):
+                    if e.status != 404:
                         problems.append(f"code_scanning: {e}")
                 except Exception as e:  # noqa: BLE001
                     problems.append(f"code_scanning: {type(e).__name__}: {e}")

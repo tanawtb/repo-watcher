@@ -73,8 +73,9 @@ class ReconciliationTest(unittest.TestCase):
         s1 = sweeper.run_sweep(self.cfg, self.store)
         self.assertEqual(1, s1["total"])
 
-        # Sweep 2: the fetch fails. The alert must NOT be reconciled as fixed.
-        self._patch(FakeClient(dependabot_error=RepoInaccessible("HTTP 404")))
+        # Sweep 2: the fetch fails (404 on dependabot = inaccessible repo).
+        # The alert must NOT be reconciled as fixed.
+        self._patch(FakeClient(dependabot_error=RepoInaccessible("HTTP 404", 404)))
         s2 = sweeper.run_sweep(self.cfg, self.store)
         self.assertEqual(1, s2["total"], "failed fetch hid a live alert")
         rows = self.store.open_alerts()
@@ -87,10 +88,18 @@ class ReconciliationTest(unittest.TestCase):
         sweeper.run_sweep(self.cfg, self.store)
 
         # 403 = permission problem: record failure, keep the alert open.
-        self._patch(FakeClient(dependabot=[], code_scanning_error=RepoInaccessible("HTTP 403")))
+        self._patch(FakeClient(dependabot=[], code_scanning_error=RepoInaccessible("HTTP 403", 403)))
         s2 = sweeper.run_sweep(self.cfg, self.store)
         self.assertEqual(1, len(self.store.open_alerts()))
         self.assertIn("octo-org/web-app", s2["repos_failed"])
+
+    def test_code_scanning_404_is_benign_not_a_failure(self) -> None:
+        # Advanced security not enabled: 404 is expected, repo stays "ok".
+        self._patch(FakeClient(dependabot=[_alert()], code_scanning_error=RepoInaccessible("HTTP 404", 404)))
+        s = sweeper.run_sweep(self.cfg, self.store)
+        self.assertEqual("", s["repos_failed"])
+        self.assertIn("octo-org/web-app", s["repos_ok"])
+        self.assertEqual(1, len(self.store.open_alerts()))
 
     def test_clean_fetch_marks_gone_alert_fixed(self) -> None:
         self._patch(FakeClient(dependabot=[_alert()]))
