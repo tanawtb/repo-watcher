@@ -9,7 +9,7 @@ No local scanners. GitHub's own security findings are the source of truth.
 - Sweeps Dependabot + code-scanning alerts for any repos you list in `.env` — works with GitHub.com or GitHub Enterprise (`GITHUB_API_BASE`).
 - SQLite history: every sweep is recorded; the dashboard shows open alerts, new-since-last-sweep, and fixed-since-last-sweep.
 - Scheduled sweeps at wall-clock times you set (`SWEEP_TIMES=09:30,15:30,17:30`), plus manual "sweep now".
-- Dashboard: dark theme first, light toggle, daisyUI/Tailwind via CDN — no build step. Star repos as favorites (persisted in SQLite; favs sort to the top), search across repo/package/title/CVE, and sort by severity, repo, or alert count.
+- Dashboard: dark theme first, light toggle, daisyUI/Tailwind via CDN — no build step. Star repos as favorites (persisted in SQLite); the "★ Fav only" toggle filters the list to starred repos. Search across repo/package/title/CVE, and sort by severity, repo, or alert count.
 
 ## Quick start
 

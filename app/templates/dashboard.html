@@ -297,7 +297,7 @@ if (groupsBox) {
   const favOnly = document.getElementById('favonly');
   const nomatch = document.getElementById('nomatch');
 
-  function apply(anchor) {
+  function apply() {
     const term = q.value.trim().toLowerCase();
     const fav = favOnly.getAttribute('aria-pressed') === 'true';
     let visible = 0;
@@ -312,20 +312,13 @@ if (groupsBox) {
       g.hidden = rowsShown === 0;
       if (rowsShown) visible++;
     }
-    const anchorEl = anchor && anchor.nodeType === 1 ? anchor : null;
-    const anchorTop = anchorEl && !anchorEl.hidden ? anchorEl.getBoundingClientRect().top : null;
     const key = sortSel.value;
     const sorted = [...groups].sort((a, b) => {
-      if (a.dataset.fav !== b.dataset.fav) return a.dataset.fav === '1' ? -1 : 1;
       if (key === 'repo') return a.dataset.repo.localeCompare(b.dataset.repo);
       if (key === 'count') return b.dataset.count - a.dataset.count;
       return a.dataset.worst - b.dataset.worst || a.dataset.repo.localeCompare(b.dataset.repo);
     });
     for (const g of sorted) groupsBox.appendChild(g);
-    if (anchorTop !== null) {
-      const delta = anchorEl.getBoundingClientRect().top - anchorTop;
-      if (delta) window.scrollBy(0, delta);
-    }
     nomatch.hidden = visible > 0;
   }
   q.addEventListener('input', apply);
@@ -355,7 +348,7 @@ async function toggleFav(btn, repo) {
     btn.setAttribute('aria-pressed', String(!on));
     btn.closest('.repo-group').dataset.fav = on ? '0' : '1';
   }
-  if (window.__applyFilters) window.__applyFilters(btn.closest('.repo-group'));
+  if (window.__applyFilters) window.__applyFilters();
 }
 </script>
 </body>
