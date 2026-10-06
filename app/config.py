@@ -39,12 +39,8 @@ def load_config() -> Config:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
         raise SystemExit("GITHUB_TOKEN missing. Copy .env.example to .env and fill it in.")
+    # REPOS is only the first-run seed; the watched list lives in the DB.
     repos = [r.strip() for r in os.environ.get("REPOS", "").split(",") if r.strip()]
-    if not repos:
-        raise SystemExit("REPOS missing. List owner/name repos to watch, comma-separated.")
-    bad = [r for r in repos if r.count("/") != 1]
-    if bad:
-        raise SystemExit(f"REPOS entries must be owner/name: {bad}")
     times = [t.strip() for t in os.environ.get("SWEEP_TIMES", "09:30,15:30,17:30").split(",") if t.strip()]
     for t in times:
         hh, _, mm = t.partition(":")

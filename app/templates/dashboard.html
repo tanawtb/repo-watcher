@@ -143,6 +143,23 @@
   @media (prefers-reduced-motion: reduce) {
     .alert-row { transition: none; }
   }
+
+  .repo-item {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .4rem .5rem; border-radius: .6rem;
+  }
+  .repo-item:hover { background: rgba(255,255,255,.045); }
+  [data-theme="light"] .repo-item:hover { background: rgba(15,23,42,.04); }
+  .repo-item .note { font-size: .74rem; opacity: .5; }
+  .repo-actions { margin-left: auto; display: flex; gap: .25rem; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer; color: inherit;
+    font-size: .85rem; opacity: .55; padding: .2rem .45rem; border-radius: .45rem;
+  }
+  .icon-btn:hover { opacity: 1; background: rgba(255,255,255,.08); }
+  [data-theme="light"] .icon-btn:hover { background: rgba(15,23,42,.07); }
+  .icon-btn.danger:hover { color: #f87171; }
+  .repo-item input { flex: 1; min-width: 8rem; }
 </style>
 </head>
 <body class="text-base-content">
@@ -278,6 +295,36 @@
   </section>
 
   {% endif %}
+
+  <section class="glass-card p-5 mt-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="display font-semibold">Watched repos</h2>
+      <button class="btn btn-primary btn-sm rounded-xl" onclick="showAddRepo()">+ Add repo</button>
+    </div>
+    <div id="repoErr" class="text-xs text-red-400 mb-2" hidden></div>
+    <div id="repoList">
+      {% for r in repos %}
+      <div class="repo-item" data-repo="{{ r.name }}">
+        <span class="display">{{ r.name }}</span>
+        {% if r.note %}<span class="note">{{ r.note }}</span>{% endif %}
+        <span class="repo-actions">
+          <button class="icon-btn" aria-label="Edit {{ r.name }}" onclick="editRepo('{{ r.name }}')">✎</button>
+          <button class="icon-btn danger" aria-label="Remove {{ r.name }}" onclick="deleteRepo('{{ r.name }}')">✕</button>
+        </span>
+      </div>
+      {% else %}
+      <p class="py-2 opacity-60">No repos watched yet — add one to start sweeping.</p>
+      {% endfor %}
+    </div>
+    <div id="addRow" class="repo-item" hidden>
+      <input class="tool-field" id="addName" type="text" placeholder="owner/repo" aria-label="New repo name">
+      <input class="tool-field" id="addNote" type="text" placeholder="note (optional)" aria-label="New repo note">
+      <span class="repo-actions">
+        <button class="btn btn-primary btn-sm rounded-xl" onclick="submitAdd()">Add</button>
+        <button class="icon-btn" onclick="hideAddRepo()">Cancel</button>
+      </span>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -362,6 +409,63 @@ async function toggleFav(btn, repo) {
   }
   if (window.__applyFilters) window.__applyFilters();
 }
+
+function repoErr(msg) {
+  const el = document.getElementById('repoErr');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+async function repoApi(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    let detail = data.detail || r.statusText;
+    try { detail = JSON.parse(detail).detail || detail; } catch (_) {}
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+  return data;
+}
+function showAddRepo() {
+  document.getElementById('addRow').hidden = false;
+  document.getElementById('addName').focus();
+}
+function hideAddRepo() {
+  document.getElementById('addRow').hidden = true;
+  repoErr('');
+}
+async function submitAdd() {
+  const name = document.getElementById('addName').value.trim();
+  const note = document.getElementById('addNote').value.trim();
+  if (!name) { repoErr('Enter a repo as owner/repo.'); return; }
+  try {
+    await repoApi('POST', '/api/repos', { name, note });
+    location.reload();
+  } catch (e) { repoErr(e.message); }
+}
+async function editRepo(repo) {
+  const name = prompt('Rename repo (leave unchanged to keep):', repo);
+  if (name === null) return;
+  const note = prompt('Note:', '');
+  if (note === null) return;
+  try {
+    await repoApi('PATCH', '/api/repos', { name: repo, new_name: name.trim(), note });
+    location.reload();
+  } catch (e) { repoErr(e.message); }
+}
+async function deleteRepo(repo) {
+  if (!confirm(`Stop watching ${repo}? Past alerts stay in history.`)) return;
+  try {
+    await repoApi('DELETE', '/api/repos?name=' + encodeURIComponent(repo));
+    location.reload();
+  } catch (e) { repoErr(e.message); }
+}
+document.getElementById('addName')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitAdd();
+});
 </script>
 </body>
 </html>

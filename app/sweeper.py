@@ -22,7 +22,7 @@ def run_sweep(cfg: Config, store: Store) -> dict[str, Any]:
         fetched: list[tuple[str, str]] = []  # (repo, source) that returned cleanly
         total = 0
         try:
-            for repo in cfg.repos:
+            for repo in store.repo_names():
                 alerts: list[dict[str, Any]] = []
                 problems: list[str] = []
                 try:

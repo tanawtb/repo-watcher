@@ -62,6 +62,7 @@ class ReconciliationTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.store = Store(Path(self.tmp.name) / "test.db")
         self.cfg = Config(token="t", repos=["octo-org/web-app"])
+        self.store.seed_repos(self.cfg.repos)  # the sweep list lives in the DB
 
     def _patch(self, fake: FakeClient) -> None:
         patcher = mock.patch.object(sweeper, "GitHubClient", return_value=fake)

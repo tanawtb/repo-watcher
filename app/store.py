@@ -40,9 +40,44 @@ CREATE INDEX IF NOT EXISTS idx_alerts_last_seen ON alerts (last_seen_sweep);
 CREATE TABLE IF NOT EXISTS favorites (
   repo TEXT PRIMARY KEY
 );
+CREATE TABLE IF NOT EXISTS repos (
+  name TEXT PRIMARY KEY COLLATE NOCASE,
+  added_at TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT ''
+);
 """
 
 SEVERITIES = ("critical", "high", "medium", "low")
+
+
+class RepoError(Exception):
+    """Base for repo CRUD failures; the API maps these to HTTP status codes."""
+
+
+class InvalidRepo(RepoError):
+    pass
+
+
+class DuplicateRepo(RepoError):
+    pass
+
+
+class UnknownRepo(RepoError):
+    pass
+
+
+def validate_repo_name(name: str) -> str:
+    """Normalize and validate an owner/name GitHub repo slug."""
+    cleaned = (name or "").strip().strip("/")
+    if cleaned.count("/") != 1:
+        raise InvalidRepo(f"repo must be owner/name, got {name!r}")
+    owner, _, repo = cleaned.partition("/")
+    for part in (owner, repo):
+        if not part:
+            raise InvalidRepo(f"repo must be owner/name, got {name!r}")
+        if not all(c.isalnum() or c in "._-" for c in part):
+            raise InvalidRepo(f"owner and name may only contain letters, digits, . _ -: {name!r}")
+    return f"{owner}/{repo}"
 
 
 def _sync(fn):
@@ -154,6 +189,77 @@ class Store:
             self._conn.execute("INSERT OR IGNORE INTO favorites (repo) VALUES (?)", (repo,))
         else:
             self._conn.execute("DELETE FROM favorites WHERE repo = ?", (repo,))
+        self._conn.commit()
+
+    # ---- watched repos (the sweep target list lives here, not .env) ----
+
+    @_sync
+    def list_repos(self) -> list[sqlite3.Row]:
+        return self._conn.execute("SELECT * FROM repos ORDER BY name COLLATE NOCASE").fetchall()
+
+    @_sync
+    def repo_names(self) -> list[str]:
+        return [r["name"] for r in self._conn.execute("SELECT name FROM repos ORDER BY name COLLATE NOCASE")]
+
+    @_sync
+    def get_repo(self, name: str) -> sqlite3.Row | None:
+        return self._conn.execute("SELECT * FROM repos WHERE name = ?", (name,)).fetchone()
+
+    @_sync
+    def add_repo(self, name: str, note: str = "") -> sqlite3.Row:
+        clean = validate_repo_name(name)
+        if self._conn.execute("SELECT 1 FROM repos WHERE name = ?", (clean,)).fetchone():
+            raise DuplicateRepo(f"{clean} is already watched")
+        self._conn.execute(
+            "INSERT INTO repos (name, added_at, note) VALUES (?, ?, ?)",
+            (clean, self._now(), (note or "").strip()),
+        )
+        self._conn.commit()
+        return self._conn.execute("SELECT * FROM repos WHERE name = ?", (clean,)).fetchone()
+
+    @_sync
+    def update_repo(self, name: str, *, new_name: str | None = None, note: str | None = None) -> sqlite3.Row:
+        clean = validate_repo_name(name)
+        if not self._conn.execute("SELECT 1 FROM repos WHERE name = ?", (clean,)).fetchone():
+            raise UnknownRepo(f"{clean} is not watched")
+        if new_name is not None:
+            target = validate_repo_name(new_name)
+            if target.lower() != clean.lower() and self._conn.execute(
+                "SELECT 1 FROM repos WHERE name = ?", (target,)
+            ).fetchone():
+                raise DuplicateRepo(f"{target} is already watched")
+            if target.lower() != clean.lower():
+                # Rename cascades to alerts/favorites so history follows the repo.
+                self._conn.execute("UPDATE alerts SET repo=? WHERE repo=?", (target, clean))
+                self._conn.execute("UPDATE favorites SET repo=? WHERE repo=?", (target, clean))
+                self._conn.execute("UPDATE repos SET name=? WHERE name=?", (target, clean))
+                clean = target
+        if note is not None:
+            self._conn.execute("UPDATE repos SET note=? WHERE name=?", (note.strip(), clean))
+        self._conn.commit()
+        return self._conn.execute("SELECT * FROM repos WHERE name = ?", (clean,)).fetchone()
+
+    @_sync
+    def delete_repo(self, name: str) -> None:
+        clean = validate_repo_name(name)
+        if not self._conn.execute("SELECT 1 FROM repos WHERE name = ?", (clean,)).fetchone():
+            raise UnknownRepo(f"{clean} is not watched")
+        self._conn.execute("DELETE FROM repos WHERE name = ?", (clean,))
+        self._conn.execute("DELETE FROM favorites WHERE repo = ?", (clean,))
+        self._conn.commit()
+
+    @_sync
+    def seed_repos(self, names: list[str]) -> None:
+        """Idempotently import .env REPOS into the DB on first run."""
+        for raw in names:
+            try:
+                clean = validate_repo_name(raw)
+            except InvalidRepo:
+                continue
+            self._conn.execute(
+                "INSERT OR IGNORE INTO repos (name, added_at, note) VALUES (?, ?, '')",
+                (clean, self._now()),
+            )
         self._conn.commit()
 
     @_sync

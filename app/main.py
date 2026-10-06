@@ -1,18 +1,20 @@
-"""FastAPI app: API, dashboard, and wall-clock sweep scheduler."""
+"""FastAPI app: API, dashboard, MCP server, and wall-clock sweep scheduler."""
 
 from __future__ import annotations
 
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from .config import Config, load_config
-from .store import Store
+from .mcp_server import build_mcp
+from .store import DuplicateRepo, RepoError, Store, UnknownRepo
 from .sweeper import run_sweep
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -21,7 +23,20 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 def create_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or load_config()
     store = Store(cfg.db_path)
-    app = FastAPI(title="repo-watcher", docs_url=None, redoc_url=None)
+    store.seed_repos(cfg.repos)  # first-run import of .env REPOS; DB is the source of truth
+
+    mcp_app = build_mcp(store, lambda: run_sweep(cfg, store)).http_app(
+        path="/mcp", stateless_http=True
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        async with mcp_app.lifespan(_app):
+            yield
+
+    app = FastAPI(title="repo-watcher", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # Copy routes instead of mount() so POST /mcp works without a redirect.
+    app.router.routes.extend(mcp_app.routes)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
@@ -43,7 +58,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "summary": summary,
                 "alerts": alerts,
                 "sweeps": sweeps,
-                "repos": cfg.repos,
+                "repos": store.list_repos(),
                 "sweep_times": cfg.sweep_times,
                 "favorites": favorites,
                 "theme": theme,
@@ -78,6 +93,38 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             return {"ok": False, "error": "repo required"}
         store.set_favorite(repo, on)
         return {"ok": True, "repo": repo, "on": on}
+
+    @app.get("/api/repos")
+    def api_repos() -> list[dict]:
+        return [dict(r) for r in store.list_repos()]
+
+    @app.post("/api/repos")
+    def api_repos_add(payload: dict) -> dict:
+        try:
+            row = store.add_repo(str(payload.get("name", "")), str(payload.get("note", "")))
+        except RepoError as e:
+            raise HTTPException(status_code=409 if isinstance(e, DuplicateRepo) else 400, detail=str(e))
+        return {"ok": True, "repo": dict(row)}
+
+    @app.patch("/api/repos")
+    def api_repos_update(payload: dict) -> dict:
+        try:
+            row = store.update_repo(
+                str(payload.get("name", "")),
+                new_name=payload.get("new_name") or None,
+                note=payload.get("note") if payload.get("note") is not None else None,
+            )
+        except RepoError as e:
+            raise HTTPException(status_code=404 if isinstance(e, UnknownRepo) else 409 if isinstance(e, DuplicateRepo) else 400, detail=str(e))
+        return {"ok": True, "repo": dict(row)}
+
+    @app.delete("/api/repos")
+    def api_repos_delete(name: str) -> dict:
+        try:
+            store.delete_repo(name)
+        except RepoError as e:
+            raise HTTPException(status_code=404 if isinstance(e, UnknownRepo) else 400, detail=str(e))
+        return {"ok": True, "repo": name}
 
     _start_scheduler(cfg, store)
     return app
