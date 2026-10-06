@@ -241,16 +241,29 @@
 
           {% set sev_names = ['critical','high','medium','low'] %}
           {% set sev_tok = ['crit','high','med','low'] %}
-          {# by_repo keys come from alerts.repo; repos.name may differ in case after
-             a delete+re-add (open_alerts matches COLLATE NOCASE), so match loosely. #}
+          {# by_repo is keyed by the exact alerts.repo string, and alerts keep their
+             original casing across a delete+re-add (UNIQUE(repo,source,number) and
+             mark_fixed are case-sensitive), so one repo can appear as both
+             "Acme/Repo" and "acme/repo". Aggregate by lowercased name. #}
           {% set bymap = {} %}
           {% for k, v in summary.by_repo.items() %}
-            {% set _ = bymap.update({k|lower: {'key': k, 'c': v}}) %}
+            {% set agg = bymap.get(k|lower) %}
+            {% if agg %}
+              {% set _ = agg.update({
+                  'total': agg.total + v.total,
+                  'critical': agg.critical + v.critical,
+                  'high': agg.high + v.high,
+                  'medium': agg.medium + v.medium,
+                  'low': agg.low + v.low}) %}
+            {% else %}
+              {% set _ = bymap.update({k|lower: {
+                  'total': v.total, 'critical': v.critical, 'high': v.high,
+                  'medium': v.medium, 'low': v.low}}) %}
+            {% endif %}
           {% endfor %}
           {% set cells = namespace(list=[]) %}
           {% for r in repos %}
-            {% set hit = bymap.get(r.name|lower) %}
-            {% set c = hit.c if hit else none %}
+            {% set c = bymap.get(r.name|lower) %}
             {% set w = namespace(v=4, word='clear') %}
             {% for s in sev_names %}
               {% if w.v == 4 and c and c.get(s, 0) %}
@@ -258,7 +271,7 @@
                 {% set w.word = s %}
               {% endif %}
             {% endfor %}
-            {% set cells.list = cells.list + [{'name': r.name, 'key': (hit.key if hit else r.name), 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word}] %}
+            {% set cells.list = cells.list + [{'name': r.name, 'total': (c.total if c else 0), 'worst': w.v, 'word': w.word}] %}
           {% endfor %}
           {% set maxc = namespace(v=1) %}
           {% for e in cells.list %}
@@ -269,7 +282,7 @@
             <div class="heat" role="group" aria-label="Repos by worst open severity">
               {% for e in cells.list|sort(attribute='name')|sort(attribute='total', reverse=true)|sort(attribute='worst') %}
                 {% if e.total %}
-                <button class="cell" data-hr="{{ e.key }}"
+                <button class="cell" data-hr="{{ e.name|lower }}" data-name="{{ e.name }}"
                         data-cap="{{ e.name }}: {{ e.total }} open, worst {{ e.word }}"
                         aria-label="{{ e.name }}: {{ e.total }} open, worst {{ e.word }}"
                         aria-pressed="false"
@@ -295,8 +308,7 @@
             <thead><tr><th>Repo</th><th>Open</th><th>Crit</th><th>High</th></tr></thead>
             <tbody id="per">
               {% for r in repos %}
-                {% set hit = bymap.get(r.name|lower) %}
-                {% set c = hit.c if hit else none %}
+                {% set c = bymap.get(r.name|lower) %}
                 <tr class="per-row">
                   <td><span class="o">{{ r.name.split('/')[0] }}/</span>{{ r.name.split('/')[1:] | join('/') }}</td>
                   <td class="n{% if not c or not c.total %} zero{% endif %}">{{ c.total if c else 0 }}</td>
@@ -466,7 +478,8 @@ async function sweepNow() {
   const perPager = document.getElementById('pager-per');
   const heatcap = document.getElementById('heatcap');
   const PG = { alerts: { page: 1, size: 10 }, per: { page: 1, size: 5 } };
-  let repoFilter = null;
+  let repoFilter = null;   // lowercased watched name
+  let repoLabel = null;    // watched casing, for the chip
 
   function headFor(repo) {
     if (heads.has(repo)) return heads.get(repo);
@@ -536,7 +549,9 @@ async function sweepNow() {
     const fav = favBtn.getAttribute('aria-pressed') === 'true';
     const by = new Map();
     for (const r of rows) {
-      if (repoFilter && r.dataset.repo !== repoFilter) continue;
+      // repoFilter is the lowercased watched name; rows keep the alert-side
+      // casing, which may differ after a delete+re-add.
+      if (repoFilter && r.dataset.repo.toLowerCase() !== repoFilter) continue;
       if (fav && r.dataset.fav !== '1') continue;
       if (term && !r.dataset.text.includes(term)) continue;
       if (!by.has(r.dataset.repo)) by.set(r.dataset.repo, []);
@@ -596,7 +611,7 @@ async function sweepNow() {
     chip.textContent = '';
     if (repoFilter) {
       const nm = document.createElement('span');
-      nm.textContent = repoFilter;
+      nm.textContent = repoLabel || repoFilter;
       const x = document.createElement('span');
       x.setAttribute('aria-hidden', 'true');
       x.textContent = '✕';
@@ -623,6 +638,7 @@ async function sweepNow() {
     const hr = e.target.closest('.cell[data-hr]');
     if (hr) {
       repoFilter = repoFilter === hr.dataset.hr ? null : hr.dataset.hr;
+      repoLabel = repoFilter ? (hr.dataset.name || hr.dataset.hr) : null;
       setHeatPressed(); repoChip(); list();
       listBox.closest('section').scrollIntoView({ block: 'start', behavior: 'smooth' });
       return;
