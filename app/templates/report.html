@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}">
+<head>
+{% include "_head.html" %}
+<style>
+  .back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mute); text-decoration: none; }
+  .back:hover { color: var(--fg); }
+  .rtitle { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .rtitle h1 { font: 700 24px var(--display); margin: 0; }
+  .star { background: none; border: 0; padding: 2px 4px; font-size: 18px; line-height: 1; color: var(--mute); opacity: .7; cursor: pointer; }
+  .star:hover, .star[aria-pressed="true"] { color: var(--star); opacity: 1; }
+  .sub { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; color: var(--mute); margin-top: 6px; }
+  .sub .note { color: var(--fg); opacity: .6; }
+  .fixed-row { opacity: .75; }
+  .fixed-row .pkg { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fg) 35%, transparent); }
+  .fh { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--mute); margin: 16px 0 4px; }
+</style>
+</head>
+<body class="text-base-content">
+<div class="max-w-5xl mx-auto px-5 py-8">
+
+  <header class="flex flex-wrap items-start justify-between gap-y-3 mb-8">
+    <div>
+      <a class="back" href="/">← all repos</a>
+      <div class="rtitle mt-2">
+        <h1><span class="o">{{ report.repo.split('/')[0] }}/</span>{{ report.repo.split('/')[1:] | join('/') }}</h1>
+        <button class="star" id="fav" aria-pressed="{{ 'true' if report.favorite else 'false' }}"
+                aria-label="Fav {{ report.repo }}">★</button>
+        {% if report.state == 'failed' %}<span class="branch" style="color:var(--high)">last sweep failed</span>
+        {% elif report.state == 'never' %}<span class="branch">never swept</span>{% endif %}
+      </div>
+      <div class="sub">
+        <span>watched since {{ report.added_at }}</span>
+        {% if report.note %}<span class="note">{{ report.note }}</span>{% endif %}
+        <span>sweeps at {{ sweep_times|join(', ') }}</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="theme" class="glass-card px-4 py-2 text-sm cursor-pointer" onclick="toggleTheme()">{% if theme == 'dark' %}☀︎ light{% else %}☾ dark{% endif %}</button>
+      <button id="sweep" class="btn btn-primary btn-sm rounded-xl" onclick="sweepNow()">Sweep now</button>
+    </div>
+  </header>
+
+  {% if report.state == 'failed' %}
+  <p class="unknote" role="note">Last sweep could not read {{ report.repo }} — the counts below are the last known state, not the current one.</p>
+  {% endif %}
+
+  <section class="tiles grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+    <div class="glass-card tile p-5">
+      <b>{{ report.total }}</b><span>open alerts</span>
+    </div>
+    {% for sev, tok in [('critical','--crit'),('high','--high'),('medium','--med'),('low','--low')] %}
+    <div class="glass-card tile p-5" style="--c:var({{ tok }})">
+      <b>{{ report.by_severity.get(sev, 0) }}</b><span>{{ sev }}</span>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="glass-card p-5" aria-label="Open alerts for {{ report.repo }}">
+    <h2 class="display font-semibold mb-2">Open alerts</h2>
+    <div class="toolbar">
+      <input class="field" id="q" type="search" placeholder="Search package, title, CVE…" aria-label="Search alerts">
+    </div>
+    <div id="list" data-state="{{ report.state }}">
+      {% for a in report.alerts %}
+      <a class="row" href="{{ a.html_url }}" target="_blank" rel="noopener"
+         data-rank="{{ a.severity_rank }}"
+         data-text="{{ (a.package ~ ' ' ~ a.title ~ ' ' ~ a.cve)|lower }}"
+         style="--c:var(--{{ ['crit','high','med','low','mute'][a.severity_rank] }})">
+        <span class="rail" aria-hidden="true"></span>
+        <span style="min-width:0">
+          <span class="pkg">{{ a.package }}</span>
+          {% if a.title %}<div class="desc">{{ a.title }}</div>{% endif %}
+        </span>
+        <span class="meta">
+          <span class="ver">{{ a.vulnerable_range or '—' }} <span class="fix">→ {{ a.first_patched or 'unavailable' }}</span></span>
+          <div class="tags">
+            <u>{{ a.severity }}</u> · {{ 'dependabot' if a.source == 'dependabot' else 'code scan' }}
+            {%- if a.cve %} · {{ a.cve }}{% endif %}
+          </div>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    <nav class="pager" id="pager" aria-label="Alert pages"></nav>
+  </section>
+
+  {% if report.fixed %}
+  <section class="glass-card p-5 mt-6" aria-label="Recently fixed alerts">
+    <h2 class="display font-semibold">Recently fixed</h2>
+    <div class="fh">last {{ report.fixed|length }} fixed by a clean sweep</div>
+    {% for a in report.fixed %}
+    <a class="row fixed-row" href="{{ a.html_url }}" target="_blank" rel="noopener"
+       style="--c:var(--{{ ['crit','high','med','low','mute'][a.severity_rank] }})">
+      <span class="rail" aria-hidden="true"></span>
+      <span style="min-width:0">
+        <span class="pkg">{{ a.package }}</span>
+        {% if a.title %}<div class="desc">{{ a.title }}</div>{% endif %}
+      </span>
+      <span class="meta">
+        <span class="ver">{{ a.vulnerable_range or '—' }}</span>
+        <div class="tags"><u>{{ a.severity }}</u> · fixed {{ a.fixed_at or '?' }}</div>
+      </span>
+    </a>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="glass-card p-5 mt-6" aria-label="Sweep history for {{ report.repo }}">
+    <h2 class="display font-semibold" style="margin-bottom:6px">Sweep history</h2>
+    <table class="hist">
+      <tbody>
+      {% for s in report.history %}
+        <tr>
+          <td class="mono" style="font-size:13px">{{ s.at }}</td>
+          <td class="n sm">{{ s.total_open }} open (all repos)</td>
+          <td class="n sm">{% if s.failed %}<span class="fail">fetch failed</span>
+            {% elif s.ok %}<span class="ok">read ok</span>
+            {% else %}<span style="opacity:.5">not fetched</span>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td class="opacity-60">no finished sweeps yet</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.dataset.theme === 'dark' ? 'light' : 'dark';
+  html.dataset.theme = next;
+  document.cookie = 'rw-theme=' + next + '; path=/; max-age=31536000; SameSite=Lax';
+  document.getElementById('theme').textContent = next === 'dark' ? '☀︎ light' : '☾ dark';
+}
+document.getElementById('theme').textContent =
+  document.documentElement.dataset.theme === 'dark' ? '☀︎ light' : '☾ dark';
+async function sweepNow() {
+  const btn = document.getElementById('sweep');
+  btn.disabled = true; btn.textContent = 'Sweeping…';
+  try {
+    const r = await fetch('/api/sweep', { method: 'POST' });
+    if (!r.ok) throw new Error(await r.text());
+  } catch (e) { console.error(e); }
+  location.reload();
+}
+
+/* alert list: search filter + pager, same pattern as the dashboard */
+(function () {
+  const listBox = document.getElementById('list');
+  const rows = [...listBox.querySelectorAll('.row')];
+  const q = document.getElementById('q');
+  const pager = document.getElementById('pager');
+  const PG = { page: 1, size: 10 };
+
+  function list(keep) {
+    if (!keep) PG.page = 1;
+    const term = q.value.trim().toLowerCase();
+    const kept = rows.filter(r => !term || r.dataset.text.includes(term));
+    const pages = Math.max(1, Math.ceil(kept.length / PG.size));
+    if (PG.page > pages) PG.page = pages;
+    const slice = kept.slice((PG.page - 1) * PG.size, PG.page * PG.size);
+    listBox.textContent = '';
+    for (const r of slice) listBox.appendChild(r);
+    if (!kept.length) {
+      const p = document.createElement('p');
+      p.className = 'none';
+      p.textContent = rows.length
+        ? 'No alerts match the search.'
+        : (listBox.dataset.state === 'failed'
+            ? 'Alert state unknown — last sweep could not read this repo.'
+            : listBox.dataset.state === 'never'
+              ? 'Never swept — click Sweep now to check this repo.'
+              : 'Nothing open — all clear.');
+      listBox.appendChild(p);
+    }
+    const total = kept.length;
+    if (!total) { pager.innerHTML = ''; return; }
+    const from = (PG.page - 1) * PG.size + 1;
+    const to = Math.min(total, PG.page * PG.size);
+    const nums = [], seq = [1];
+    for (let i = PG.page - 1; i <= PG.page + 1; i++) if (i > 1 && i < pages) seq.push(i);
+    if (pages > 1) seq.push(pages);
+    seq.forEach((n, i) => {
+      if (i && n - seq[i - 1] > 1) nums.push('<span class="gap">…</span>');
+      nums.push('<button class="pg" data-p="' + n + '"' + (n === PG.page ? ' aria-current="page"' : '') +
+        ' aria-label="Page ' + n + '">' + n + '</button>');
+    });
+    pager.innerHTML = '<div class="pinfo">Showing <b>' + from + '–' + to + '</b> of <b>' + total + '</b></div>' +
+      (pages > 1 ? '<div class="pages">' +
+        '<button class="pg arrow" data-p="' + (PG.page - 1) + '" aria-label="Previous page"' +
+        (PG.page === 1 ? ' disabled' : '') + '>←</button>' + nums.join('') +
+        '<button class="pg arrow" data-p="' + (PG.page + 1) + '" aria-label="Next page"' +
+        (PG.page === pages ? ' disabled' : '') + '>→</button></div>' : '');
+  }
+  pager.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-p]');
+    if (b && !b.disabled) { PG.page = +b.dataset.p; list(true); }
+  });
+  q.addEventListener('input', () => list());
+  list();
+})();
+
+async function toggleFav() {
+  const btn = document.getElementById('fav');
+  const on = btn.getAttribute('aria-pressed') !== 'true';
+  btn.setAttribute('aria-pressed', String(on));
+  try {
+    const res = await fetch('/api/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo: {{ report.repo | tojson }}, on }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    console.error(e);
+    btn.setAttribute('aria-pressed', String(!on));
+  }
+}
+document.getElementById('fav').addEventListener('click', toggleFav);
+</script>
+</body>
+</html>

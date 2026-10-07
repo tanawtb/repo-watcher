@@ -35,6 +35,11 @@ class _McpGuard:
         await self.guard.app(scope, receive, send)
 
 
+def _theme_of(request: Request) -> str:
+    theme = request.cookies.get("rw-theme", "dark")
+    return theme if theme in ("dark", "light") else "dark"
+
+
 def create_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or load_config()
     store = Store(cfg.db_path)
@@ -60,9 +65,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
-        theme = request.cookies.get("rw-theme", "dark")
-        if theme not in ("dark", "light"):
-            theme = "dark"
+        theme = _theme_of(request)
         sweep_id = store.latest_sweep_id()
         summary = store.summary(sweep_id) if sweep_id else None
         alerts = []
@@ -82,6 +85,24 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "sweep_times": cfg.sweep_times,
                 "favorites": favorites,
                 "theme": theme,
+                "page_title": "repo-watcher",
+            },
+        )
+
+    @app.get("/repo/{name:path}", response_class=HTMLResponse)
+    def repo_page(request: Request, name: str) -> HTMLResponse:
+        """One repo's dependency report: open alerts, fixed history, sweep state."""
+        report = store.repo_report(name)
+        if report is None:
+            raise HTTPException(status_code=404, detail=f"{name} is not a watched repo")
+        return TEMPLATES.TemplateResponse(
+            request,
+            "report.html",
+            {
+                "report": report,
+                "sweep_times": cfg.sweep_times,
+                "theme": _theme_of(request),
+                "page_title": f"{report['repo']} · repo-watcher",
             },
         )
 

@@ -323,6 +323,73 @@ class Store:
         }
 
     @_sync
+    def repo_report(self, name: str) -> dict[str, Any] | None:
+        """Everything one repo's dependency report needs; None if not watched.
+
+        alerts.repo keeps its original casing across a delete+re-add while the
+        repos PK is NOCASE, so every alert lookup matches NOCASE against the
+        canonical stored name.
+        """
+        row = self._conn.execute("SELECT * FROM repos WHERE name = ?", (name,)).fetchone()
+        if not row:
+            return None
+        stored = row["name"]
+        rank = ("CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 "
+                "WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
+        open_rows = self._conn.execute(
+            "SELECT * FROM alerts WHERE fixed_sweep IS NULL AND repo = ? COLLATE NOCASE "
+            f"ORDER BY {rank}, number",
+            (stored,),
+        ).fetchall()
+        fixed_rows = self._conn.execute(
+            "SELECT a.*, s.finished_at AS fixed_at FROM alerts a "
+            "LEFT JOIN sweeps s ON s.id = a.fixed_sweep "
+            "WHERE a.fixed_sweep IS NOT NULL AND a.repo = ? COLLATE NOCASE "
+            "ORDER BY a.fixed_sweep DESC, a.number DESC LIMIT 15",
+            (stored,),
+        ).fetchall()
+        by_sev = {s: 0 for s in SEVERITIES}
+        for r in open_rows:
+            by_sev[r["severity"]] = by_sev.get(r["severity"], 0) + 1
+        latest = self.latest_sweep_id()
+        history: list[dict[str, Any]] = []
+        state = "never"  # this repo's outcome in the latest finished sweep
+        for s in self._conn.execute(
+            "SELECT * FROM sweeps WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 10"
+        ).fetchall():
+            ok = any(x.strip().lower() == stored.lower() for x in s["repos_ok"].split(","))
+            # repos_failed is "repo: why; repo2: why2" — the repo is the first
+            # segment of each entry.
+            failed = any(
+                seg.strip().split(":", 1)[0].strip().lower() == stored.lower()
+                for seg in s["repos_failed"].split(";")
+            )
+            history.append({
+                "id": s["id"],
+                "at": s["finished_at"] or s["started_at"],
+                "total_open": s["total_open"],
+                "ok": ok,
+                "failed": failed,
+            })
+            if s["id"] == latest:
+                state = "failed" if failed else ("ok" if ok else "never")
+        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        return {
+            "repo": stored,
+            "note": row["note"],
+            "added_at": row["added_at"],
+            "favorite": self._conn.execute(
+                "SELECT 1 FROM favorites WHERE repo = ?", (stored,)
+            ).fetchone() is not None,
+            "total": len(open_rows),
+            "by_severity": by_sev,
+            "alerts": [dict(r, severity_rank=sev_rank.get(r["severity"], 4)) for r in open_rows],
+            "fixed": [dict(r, severity_rank=sev_rank.get(r["severity"], 4)) for r in fixed_rows],
+            "history": history,
+            "state": state,
+        }
+
+    @_sync
     def sweeps(self, limit: int = 20) -> list[sqlite3.Row]:
         return self._conn.execute(
             "SELECT * FROM sweeps ORDER BY id DESC LIMIT ?", (limit,)

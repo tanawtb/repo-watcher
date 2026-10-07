@@ -9,7 +9,7 @@ No local scanners. GitHub's own security findings are the source of truth.
 - Sweeps Dependabot + code-scanning alerts for every watched repo — works with GitHub.com or GitHub Enterprise (`GITHUB_API_BASE`). The watched list lives in SQLite; add/edit/remove from the dashboard, the API, or any MCP client.
 - SQLite history: every sweep is recorded; the dashboard shows open alerts, new-since-last-sweep, and fixed-since-last-sweep.
 - Scheduled sweeps at wall-clock times you set (`SWEEP_TIMES=09:30,15:30,17:30`), plus manual "sweep now".
-- Dashboard: dark theme first, light toggle, daisyUI/Tailwind via CDN — no build step. Star repos as favorites (persisted in SQLite); the "★ Fav only" toggle filters the list to starred repos. Search across repo/package/title/CVE, and sort by severity, repo, or alert count. Manage watched repos (add, rename, note, remove) from the "Watched repos" card.
+- Dashboard: dark theme first, light toggle, daisyUI/Tailwind via CDN — no build step. Star repos as favorites (persisted in SQLite); the "★ Fav only" toggle filters the list to starred repos. Search across repo/package/title/CVE, and sort by severity, repo, or alert count. Manage watched repos (add, rename, note, remove) from the "Watched repos" card. Click any repo name (per-repo table, watched list, or alert-group header) to open that repo's dependency report at `/repo/owner/name`: open-alert counts by severity, the alert list with search, recently-fixed alerts, and per-repo sweep history.
 - MCP server at `/mcp` (Streamable HTTP, spec 2025-06-18): agents can list/add/update/remove repos, read alerts and summaries, and trigger sweeps with tools `list_repos`, `add_repo`, `update_repo`, `remove_repo`, `get_summary`, `list_alerts`, `trigger_sweep`. The endpoint enforces the spec's Host/Origin checks (DNS-rebinding protection); the bind address is always accepted, extra proxy hostnames go in `MCP_ALLOWED_HOSTS`.
 
 ## Quick start
@@ -45,6 +45,7 @@ curl -X POST http://127.0.0.1:8000/api/sweep
 | Route | Purpose |
 |-------|---------|
 | `GET /` | dashboard |
+| `GET /repo/{owner}/{name}` | one repo's dependency report — 404 if not watched |
 | `GET /api/summary` | counts by severity/source, new & fixed since previous sweep |
 | `GET /api/alerts` | open alerts from the latest sweep |
 | `GET /api/sweeps` | sweep history |
@@ -66,7 +67,7 @@ app/
   sweeper.py     one sweep: fetch -> store -> diff
   main.py        FastAPI app, scheduler, dashboard, MCP mount
   mcp_server.py  FastMCP tools over the same Store
-  templates/     dashboard.html
+  templates/     dashboard.html, report.html, _head.html (shared head/styles)
 run.py           entry point
 ```
 
