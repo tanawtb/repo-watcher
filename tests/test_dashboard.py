@@ -81,7 +81,9 @@ class RepoReportTest(unittest.TestCase):
     def test_report_links_to_github_security_page(self) -> None:
         html = self.client.get("/repo/octo-org/web-app").text
         self.assertIn('href="https://github.com/octo-org/web-app/security"', html)
-        self.assertIn('aria-label="Open octo-org/web-app security on GitHub"', html)
+        self.assertIn('class="back glass-card px-3 py-1.5" href="/"', html)
+        self.assertIn("All Repository", html)
+        self.assertIn('class="glass-card px-4 py-2 text-sm gh" href="https://github.com/octo-org/web-app/security"', html)
 
     def test_report_repo_url_follows_ghes_api_base(self) -> None:
         cfg = Config(token="t", repos=["octo-org/web-app"],
