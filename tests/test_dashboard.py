@@ -78,9 +78,9 @@ class RepoReportTest(unittest.TestCase):
         self.assertEqual(200, resp.status_code)
         self.assertIn("pkg", resp.text)
 
-    def test_report_links_to_github_repo(self) -> None:
+    def test_report_links_to_github_security_page(self) -> None:
         html = self.client.get("/repo/octo-org/web-app").text
-        self.assertIn('href="https://github.com/octo-org/web-app"', html)
+        self.assertIn('href="https://github.com/octo-org/web-app/security"', html)
 
     def test_report_repo_url_follows_ghes_api_base(self) -> None:
         cfg = Config(token="t", repos=["octo-org/web-app"],
@@ -88,7 +88,7 @@ class RepoReportTest(unittest.TestCase):
                      db_path=f"{self.tmp.name}/ghes.db")
         client = TestClient(create_app(cfg))
         html = client.get("/repo/octo-org/web-app").text
-        self.assertIn('href="https://ghe.example.com/octo-org/web-app"', html)
+        self.assertIn('href="https://ghe.example.com/octo-org/web-app/security"', html)
 
     def test_dashboard_title_not_blank(self) -> None:
         self.assertIn("<title>repo-watcher</title>", self.client.get("/").text)
