@@ -103,6 +103,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "sweep_times": cfg.sweep_times,
                 "theme": _theme_of(request),
                 "page_title": f"{report['repo']} · repo-watcher",
+                "repo_url": f"{cfg.web_base}/{report['repo']}",
             },
         )
 

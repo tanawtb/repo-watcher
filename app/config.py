@@ -34,6 +34,13 @@ class Config:
     port: int = 8000
     mcp_allowed_hosts: list[str] = field(default_factory=list)
 
+    @property
+    def web_base(self) -> str:
+        """Web UI base for repo links, derived from the API base."""
+        if self.api_base == "https://api.github.com":
+            return "https://github.com"
+        return self.api_base.rstrip("/").removesuffix("/api/v3")
+
 
 def load_config() -> Config:
     _load_dotenv(ROOT / ".env")
