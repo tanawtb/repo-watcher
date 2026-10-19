@@ -372,7 +372,7 @@ async function sweepNow() {
     });
     const sizes = key === 'per' ? [5, 10] : [5, 10, 25];
     return '<div class="pinfo">Showing <b>' + from + '–' + to + '</b> of <b>' + total + '</b>' +
-      '<label>Per page <select class="field psize" data-k="' + key + '" aria-label="Rows per page">' +
+      '<label>Per page <select class="field psize" data-k="' + key + '" aria-label="Repos per page">' +
       sizes.map(n => '<option' + (n === P.size ? ' selected' : '') + '>' + n + '</option>').join('') +
       '</select></label></div>' +
       (pages > 1 ? '<div class="pages">' +
@@ -409,13 +409,15 @@ async function sweepNow() {
       if (key === 'cnt') return totals.get(y) - totals.get(x);
       return worst(by.get(x)) - worst(by.get(y)) || x.localeCompare(y);
     });
-    const flat = [];
-    for (const n of names) flat.push(...by.get(n));
-
-    const total = flat.length;
+    // "Per page" counts repos, not alert items: slice the repo names, then
+    // render every alert of the repos on this page.
+    const total = names.length;
     const pages = Math.max(1, Math.ceil(total / PG.alerts.size));
     if (PG.alerts.page > pages) PG.alerts.page = pages;
-    const slice = flat.slice((PG.alerts.page - 1) * PG.alerts.size, PG.alerts.page * PG.alerts.size);
+    const pageNames = names.slice((PG.alerts.page - 1) * PG.alerts.size, PG.alerts.page * PG.alerts.size);
+    const flat = [];
+    for (const n of pageNames) flat.push(...by.get(n));
+    const slice = flat;
 
     listBox.textContent = '';
     let last = null;
